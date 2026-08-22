@@ -1,0 +1,4 @@
+mcp[cli]>=1.10.1,<2.0.0
+kerykeion>=5.0.0
+python-dotenv>=1.0.0
+tzdata>=2024.1

@@ -1,0 +1,18 @@
+[Unit]
+Description=astromcp - MCP service for natal chart rectification (kerykeion engine)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/astromcp
+EnvironmentFile=-/opt/astromcp/.env
+ExecStart=/opt/astromcp/.venv/bin/python /opt/astromcp/app.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=astromcp
+
+[Install]
+WantedBy=multi-user.target
