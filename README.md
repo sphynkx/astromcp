@@ -2,13 +2,13 @@
 
 MCP (Model Context Protocol) server exposing precise astrological chart
 calculations (natal charts, transits, secondary progressions, solar arc
-directions) for use as tools by an LLM assistant. Built on
-kerykeion (https://github.com/g-battaglia/kerykeion), which wraps the
-Swiss Ephemeris for astronomical accuracy.
+directions, and full birth-time rectification scans) for use as tools by an
+LLM assistant. Built on kerykeion (https://github.com/g-battaglia/kerykeion),
+which wraps the Swiss Ephemeris for astronomical accuracy.
 
-Originally built to support natal chart rectification work (determining
-an unknown/uncertain birth time by matching astrological techniques against
-a list of known life events), but the tools are general-purpose and usable
+Originally built to support natal chart rectification work (determining an
+unknown/uncertain birth time by matching astrological techniques against a
+list of known life events), but the tools are general-purpose and usable
 for any natal/transit/progression/direction calculation.
 
 ## Why this exists
@@ -21,59 +21,93 @@ to a Swiss Ephemeris calculation, not to the model's training data.
 
 ## Architecture
 
-Claude (claude.ai / API) --MCP over HTTPS--> nginx reverse proxy
-                                          --> uvicorn (127.0.0.1:8765)
-                                              --> app.py (FastMCP + kerykeion)
+    Claude (claude.ai / API) --MCP over HTTPS--> nginx reverse proxy
+                                              --> uvicorn (127.0.0.1:8765)
+                                                  --> app.py (tool registration)
+                                                      --> engine/ (all logic)
 
 The service exposes tools, not a REST API - it must be added to Claude as
 an MCP connector (streamable-http transport), not fetched as a plain URL.
+
+## Project structure
+
+    astromcp/
+    ├── app.py                  # MCP entry point: tool registration only
+    ├── README.md
+    ├── install/
+    │   ├── requirements.txt
+    │   ├── astromcp.service    # systemd unit
+    │   └── .env.example        # documents all tunable settings
+    └── engine/
+        ├── __init__.py
+        ├── config.py           # .env-driven settings, with built-in defaults
+        ├── constants.py        # structural constants (point/house/angle keys)
+        ├── chart.py            # subject construction, serialization, tz helpers
+        ├── aspects.py          # aspect geometry, applying/separating/exact
+        ├── techniques.py       # transit / secondary progression / solar arc
+        ├── scan.py             # rectif_scan: sweeps candidate birth times
+        ├── tools.py            # tool implementations (no MCP dependency)
+        └── display.py          # human-readable console summaries
+
+`app.py` deliberately contains no astrological logic - it only registers
+MCP tools and delegates to `engine/tools.py`. This keeps the transport layer
+(MCP/FastMCP specifics) separate from the domain logic, which can be read,
+modified, or reused independently.
 
 ## Tools exposed
 
 | Tool | Purpose |
 |---|---|
-| rectif_chart | Full chart (planets, houses, angles) for one date/time/place |
-| rectif_chart_batch | Batch version of the above |
-| rectif_technique | Transit / secondary progression / solar arc direction, with aspects |
-| rectif_technique_batch | Batch version of the above |
-| ping | Connectivity test |
+| `rectif_chart` | Full chart (planets, houses, angles) for one date/time/place |
+| `rectif_chart_batch` | Batch version of the above |
+| `rectif_technique` | Transit / secondary progression / solar arc direction, with aspects |
+| `rectif_technique_batch` | Batch version of the above |
+| `rectif_scan` | Sweeps a range of candidate birth times against a set of life events, returns ranked candidates - the core rectification engine |
+| `ping` | Connectivity test |
 
-Full parameter reference is in the docstrings in app.py (visible to the
+Full parameter reference is in the docstrings in `app.py` (visible to the
 MCP client, including the LLM, at call time).
 
 ### Key design choices
 
-- No geocoding. The service never looks up place names - you always
-  pass explicit lat/lng as decimal degrees. This avoids the "small
+- **No geocoding.** The service never looks up place names - you always
+  pass explicit `lat`/`lng` as decimal degrees. This avoids the "small
   village not in the database" problem entirely; get coordinates from
   Wikipedia/Wikidata (property P625) or any gazetteer, and pass them
   directly.
-- Timezones: tz_str (IANA name) or explicit tz_offset_minutes.
+- **Timezones: `tz_str` (IANA name) or explicit `tz_offset_minutes`.**
   IANA names correctly auto-resolve DST for modern dates. For historical
   dates where the modern IANA zone boundary/rule doesn't apply (e.g.
-  Soviet-era administrative timezone changes), pass tz_offset_minutes
+  Soviet-era administrative timezone changes), pass `tz_offset_minutes`
   explicitly to override.
-- For ambiguous/nonexistent local times (the hour that's skipped in a
+- **For ambiguous/nonexistent local times** (the hour that's skipped in a
   spring-forward, or repeated in a fall-back), kerykeion raises an error
-  rather than silently guessing. The reliable workaround is to compute
-  the UTC time yourself and pass it with tz_offset_minutes=0 - this
+  rather than silently guessing. The reliable workaround is to compute the
+  UTC time yourself and pass it with `tz_offset_minutes=0` - this
   sidesteps local-time DST resolution entirely.
-- Orbs are technique-aware. Transits default to wide classical orbs;
-  progressions/directions default to tight ~1 degree orbs, since for
-  directions 1 degree of arc is roughly 1 year of life, so a wide orb
-  there directly becomes years of dating error.
+- **Orbs are technique-aware.** Transits default to wide classical orbs;
+  progressions/directions default to tight ~1° orbs, since for directions
+  1° of arc ≈ 1 year of life, so a wide orb there directly becomes years
+  of dating error. All defaults are tunable via `.env` - see
+  `.env.example`.
+- **`rectif_scan` builds the natal chart once per candidate**, not once
+  per event, so cost scales as `candidates × events`, not `candidates ×
+  events × (natal + technique)`. A 2-hour range at 1-minute resolution
+  with 20 events is on the order of 2,400 chart builds - typically tens
+  of seconds, well within the timeout configured in the reverse proxy.
 
 ## Requirements
 
-- Linux server (developed on Fedora 39) with a public HTTPS-capable domain
-  (or, for local-only testing via Claude Desktop, just LAN access)
+- A Fedora-based Linux server (or any modern systemd Linux distribution -
+  nothing here is Fedora-specific beyond how the examples are phrased)
 - Python 3.12+
 - nginx + a valid TLS certificate (Let's Encrypt via certbot) - Claude's
   web client connects from Anthropic's infrastructure and will not accept
   a self-signed certificate
-- mcp[cli]>=1.10.1,<2.0.0 - pin below 2.0.0. The v2 SDK (released
-  2026-07-28) renamed FastMCP to MCPServer and switched to a stateless
-  protocol; this codebase targets the 1.x API and stateful transport.
+- `mcp[cli]>=1.10.1,<2.0.0` - **pin below 2.0.0**. The v2 SDK
+  (released 2026-07-28) renamed `FastMCP` to `MCPServer` and switched to a
+  stateless protocol; this codebase targets the 1.x API and stateful
+  transport.
 
 ## Installation
 
@@ -84,19 +118,26 @@ MCP client, including the LLM, at call time).
     pip install --upgrade pip
     pip install -r install/requirements.txt
 
-Place app.py in /opt/astromcp/app.py (see repo root).
+Place `app.py` and the `engine/` directory under `/opt/astromcp/`.
 
-Optional .env in /opt/astromcp/.env:
+Optionally copy `install/.env.example` to `.env` **in the project root**
+(`/opt/astromcp/.env` - not `install/.env`) and adjust any settings you
+want to override (house system, orb tables, scan defaults, console
+output, etc.):
 
-    ASTROMCP_HOST=0.0.0.0
-    ASTROMCP_PORT=8765
+    cp install/.env.example .env
+
+Every value has a working built-in default, so this step can be skipped
+entirely for a first run. `.env` must live in the root because that's
+where `load_dotenv()` looks by default, and where the systemd unit's
+`EnvironmentFile` points.
 
 ### Run manually (for testing)
 
     source .venv/bin/activate
     python app.py
 
-Default MCP endpoint: http://0.0.0.0:8765/mcp
+Default MCP endpoint: `http://0.0.0.0:8765/mcp`
 
 ### Run as a systemd service (production)
 
@@ -108,12 +149,12 @@ Default MCP endpoint: http://0.0.0.0:8765/mcp
 
 ## Hosting / reverse proxy setup
 
-1. Point a subdomain (e.g. astromcp.example.com) at your server's public IP.
+1. Point a subdomain (e.g. `astromcp.example.com`) at your server's public IP.
 2. Get a certificate:
 
        certbot --nginx -d astromcp.example.com
 
-3. nginx reverse proxy (/etc/nginx/conf.d/astromcp.conf or similar):
+3. nginx reverse proxy (`/etc/nginx/conf.d/astromcp.conf` or similar):
 
        server {
            listen 443 ssl;
@@ -129,31 +170,43 @@ Default MCP endpoint: http://0.0.0.0:8765/mcp
                proxy_set_header X-Real-IP $remote_addr;
                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                proxy_set_header X-Forwarded-Proto $scheme;
+               # streamable-http keeps a connection open per session, and
+               # rectif_scan requests can legitimately take tens of seconds
                proxy_read_timeout 300s;
            }
        }
 
-4. Reload nginx: nginx -t && systemctl reload nginx
+4. Reload nginx: `nginx -t && systemctl reload nginx`
 
 No authentication is configured by default (no OAuth). Consider adding
-fail2ban on nginx and/or an IP allowlist if the endpoint is publicly
+`fail2ban` on nginx and/or an IP allowlist if the endpoint is publicly
 reachable, since it will otherwise be found by scanners.
 
 ## Connecting to Claude
 
-In claude.ai: Settings -> Connectors -> Add custom connector
-- URL: https://astromcp.example.com/mcp
+In claude.ai: **Settings → Connectors → Add custom connector**
+- URL: `https://astromcp.example.com/mcp`
 - No OAuth
 
 After adding, the tools become available in any conversation with the
-connector enabled. If you add new tools to app.py and restart the
+connector enabled. If you add new tools to `app.py` and restart the
 service, you generally need to reconnect the connector in Settings for
 Claude to see the updated tool list.
+
+## Console output
+
+With `ASTROMCP_CONSOLE_RESULT_PREVIEW=true` (the default), every tool call
+also prints a compact, human-readable summary of its result to the server
+console/journal - so `journalctl -u astromcp -f` shows actual chart
+positions, aspects, and scan rankings, not just "request received /
+response sent". This is purely a logging convenience; the MCP response
+itself is unaffected. See `engine/display.py` to customize the format, or
+set the variable to `false` to disable it.
 
 ## Testing
 
 Quick sanity check with the official MCP Python client (more reliable
-than hand-rolled curl, which is finicky against the streamable-http
+than hand-rolled `curl`, which is finicky against the streamable-http
 protocol's session/SSE handshake):
 
     import asyncio
@@ -173,18 +226,22 @@ protocol's session/SSE handshake):
 
 ## Known limitations / open items
 
-- Progressed/directed angle method (direct_progressed_angles) matches
-  the correct sign but has a residual ~10-23 arcminute offset against
-  Zet9 that grows with elapsed time - likely a slightly different
+- Progressed/directed angle method (`direct_progressed_angles`) matches
+  the correct sign but has a residual ~10-23' offset against reference
+  software that grows with elapsed time - likely a slightly different
   year-length constant or time-of-day handling. Not yet root-caused.
 - Intermediate progressed/directed house cusps (2,3,5,6,8,9,11,12) are
   not currently computed - only the four angles (ASC/MC/DSC/IC).
-- Historical timezone data relies on IANA tzdata via Python's zoneinfo,
+- Historical timezone data relies on IANA tzdata via Python's `zoneinfo`,
   which is well-maintained but may not capture every obscure historical
   administrative change (e.g. small USSR settlements reassigned between
-  time zones). Use tz_offset_minutes to override when you've verified
+  time zones). Use `tz_offset_minutes` to override when you've verified
   the correct historical offset independently.
-- Runs as root in the current systemd unit; consider a dedicated
+- `rectif_scan` cost scales linearly with `candidates × events`; very
+  wide ranges at fine step sizes with many events can take minutes -
+  tune `proxy_read_timeout` accordingly, or narrow the range first with
+  a coarse pass.
+- Runs as `root` in the current systemd unit; consider a dedicated
   unprivileged user for production hardening.
 - No authentication on the MCP endpoint. Fine for a single-user personal
   tool behind a non-guessable subdomain; add an allowlist/secret header
