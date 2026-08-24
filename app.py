@@ -24,7 +24,21 @@ from engine import tools
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL, logging.INFO))
 logger = logging.getLogger("astromcp")
 
-mcp = FastMCP("astromcp", host=config.HOST, port=config.PORT)
+mcp = FastMCP(
+    "astromcp",
+    host=config.HOST,
+    port=config.PORT,
+    instructions=(
+        "Before doing any rectification (or other astrological analysis) "
+        "work with this service, call help() with no arguments first. It "
+        "returns an overview of the available tools and points to deeper "
+        "topics (e.g. help('rectification')) covering methodology this "
+        "service expects you to follow - technique priority order, an "
+        "explicit rule against inventing subjective event weights, and "
+        "other lessons from real sessions that are not obvious from the "
+        "tool signatures alone."
+    ),
+)
 
 
 @mcp.tool()
@@ -297,6 +311,22 @@ def rectif_trutina(
 def ping(message: str = "world") -> str:
     """Simple connectivity test."""
     return tools.ping(message)
+
+
+@mcp.tool()
+def help(topic: str = "overview") -> str:
+    """
+    Returns a help/methodology text for the given topic, read from this
+    service's help_texts/ directory. Call with no arguments (topic=
+    "overview") first, before doing rectification or other astrological
+    analysis work - it explains what tools are available and points to
+    deeper topics (e.g. help("rectification")) covering hard-won
+    methodology (technique priority order, an explicit rule against
+    inventing subjective event weights, timezone/coordinate handling
+    advice, etc.) that isn't obvious from tool signatures alone. If the
+    given topic doesn't exist, returns a list of the topics that do.
+    """
+    return tools.help(topic)
 
 
 if __name__ == "__main__":

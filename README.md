@@ -34,6 +34,9 @@ an MCP connector (streamable-http transport), not fetched as a plain URL.
     astromcp/
     ├── app.py                  # MCP entry point: tool registration only
     ├── README.md
+    ├── help_texts/             # LLM-facing methodology guides, read via the help() tool
+    │   ├── overview.md
+    │   └── rectification.md
     ├── install/
     │   ├── requirements.txt
     │   ├── astromcp.service    # systemd unit
@@ -41,11 +44,14 @@ an MCP connector (streamable-http transport), not fetched as a plain URL.
     └── engine/
         ├── __init__.py
         ├── config.py           # .env-driven settings, with built-in defaults
-        ├── constants.py        # structural constants (point/house/angle keys)
+        ├── constants.py        # structural constants + traditional sign rulerships
         ├── chart.py            # subject construction, serialization, tz helpers
         ├── aspects.py          # aspect geometry, applying/separating/exact
-        ├── techniques.py       # transit / secondary progression / solar arc
+        ├── techniques.py       # transit / progression / solar arc / solar return / profection
+        ├── trutina.py          # Trutine of Hermes (classical rectification, no events needed)
         ├── scan.py             # rectif_scan: sweeps candidate birth times
+        ├── jobs.py             # in-memory async job registry for long scans
+        ├── help.py             # reads help_texts/*.md on demand
         ├── tools.py            # tool implementations (no MCP dependency)
         └── display.py          # human-readable console summaries
 
@@ -60,13 +66,38 @@ modified, or reused independently.
 |---|---|
 | `rectif_chart` | Full chart (planets, houses, angles) for one date/time/place |
 | `rectif_chart_batch` | Batch version of the above |
-| `rectif_technique` | Transit / secondary progression / solar arc direction, with aspects |
+| `rectif_technique` | One technique - transit / secondary progression / solar arc direction / solar return / profection - with aspects to the natal chart |
 | `rectif_technique_batch` | Batch version of the above |
-| `rectif_scan` | Sweeps a range of candidate birth times against a set of life events, returns ranked candidates - the core rectification engine |
+| `rectif_scan` | Sweeps a range of candidate birth times against a set of life events, returns ranked candidates - the core rectification engine (synchronous) |
+| `rectif_scan_start` / `rectif_scan_result` | Async version of rectif_scan (submit + poll) - use for large scans or `technique="solar_return"`, which can otherwise exceed MCP/proxy timeouts |
+| `rectif_trutina` | Trutine of Hermes: fast, direct classical rectification via the conception (epoch) chart - needs no life events at all |
+| `help` | Reads a methodology/usage guide from `help_texts/*.md` - see below |
 | `ping` | Connectivity test |
 
 Full parameter reference is in the docstrings in `app.py` (visible to the
 MCP client, including the LLM, at call time).
+
+### How the LLM client learns the methodology
+
+Two mechanisms work together:
+
+1. **`instructions`** on the `FastMCP(...)` constructor in `app.py` - sent
+   automatically to the client during the MCP `initialize` handshake,
+   before any tool is called. It's kept short: essentially "call `help()`
+   before doing rectification work."
+2. **`help_texts/*.md`**, read on demand via the `help` tool. This is
+   where the actual accumulated methodology lives - technique priority
+   order, the rule against inventing subjective event-significance
+   weights, timezone/coordinate handling advice, and so on. Add a new
+   topic by adding a new `help_texts/<topic>.md` file; `help()` with no
+   arguments (or an unrecognized topic) lists whatever topics currently
+   exist, so nothing needs to be hardcoded elsewhere when a topic is
+   added.
+
+This exists so that methodology learned the hard way in one chat session
+isn't lost when the service is used from a different chat or account -
+the service itself carries its own operating instructions, rather than
+relying on them being re-explained every time.
 
 ### Key design choices
 

@@ -17,6 +17,7 @@ from .techniques import (
 )
 from .scan import run_scan
 from .trutina import run_trutina_hermetis
+from .help import get_help
 from .constants import DEFAULT_POINTS, LUMINARY_NAMES
 from .display import print_chart_result, print_technique_result, print_scan_result
 from .jobs import submit_job, get_job
@@ -338,3 +339,7 @@ def rectif_trutina(
 
 def ping(message: str = "world") -> str:
     return f"pong: {message} (from astromcp, kerykeion engine loaded)"
+
+
+def help(topic: str = "overview") -> str:
+    return get_help(topic)
