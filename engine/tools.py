@@ -309,6 +309,10 @@ def rectif_trutina(
     zodiac_type: Optional[str] = None,
     initial_guess_hour: int = 12, initial_guess_minute: int = 0, initial_guess_second: int = 0,
     max_iterations: int = 30,
+    mother_year: Optional[int] = None, mother_month: Optional[int] = None, mother_day: Optional[int] = None,
+    mother_hour: Optional[int] = None, mother_minute: Optional[int] = None, mother_second: Optional[int] = None,
+    mother_lat: Optional[float] = None, mother_lng: Optional[float] = None,
+    mother_tz_str: Optional[str] = None, mother_tz_offset_minutes: Optional[int] = None,
 ) -> Dict[str, Any]:
     house_system = house_system or config.DEFAULT_HOUSE_SYSTEM
     zodiac_type = zodiac_type or config.DEFAULT_ZODIAC_TYPE
@@ -318,19 +322,18 @@ def rectif_trutina(
             natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
             initial_guess_hour, initial_guess_minute, initial_guess_second,
             max_iterations,
+            mother_year, mother_month, mother_day,
+            mother_hour, mother_minute, mother_second,
+            mother_lat, mother_lng, mother_tz_str, mother_tz_offset_minutes,
         )
         if config.CONSOLE_RESULT_PREVIEW:
-            logger.info(
-                "  trutina: below=%02d:%02d:%02d (converged=%s)  above=%02d:%02d:%02d (converged=%s)",
-                result["branch_moon_below_horizon_at_birth"]["rectified_hour"],
-                result["branch_moon_below_horizon_at_birth"]["rectified_minute"],
-                result["branch_moon_below_horizon_at_birth"]["rectified_second"],
-                result["branch_moon_below_horizon_at_birth"]["converged"],
-                result["branch_moon_above_horizon_at_birth"]["rectified_hour"],
-                result["branch_moon_above_horizon_at_birth"]["rectified_minute"],
-                result["branch_moon_above_horizon_at_birth"]["rectified_second"],
-                result["branch_moon_above_horizon_at_birth"]["converged"],
-            )
+            for key, branch in result.items():
+                if isinstance(branch, dict) and "rectified_hour" in branch:
+                    logger.info(
+                        "  trutina %s: %02d:%02d:%02d (converged=%s, cycle=%s)",
+                        key, branch["rectified_hour"], branch["rectified_minute"],
+                        branch["rectified_second"], branch["converged"], branch["cycle_detected"],
+                    )
         return result
     except Exception as e:
         logger.exception("rectif_trutina failed")

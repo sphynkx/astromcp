@@ -6,12 +6,22 @@ aspect hits, and returns a ranked table of candidates.
 Supports second-level precision via step_seconds (falls back to
 step_minutes * 60 if step_seconds is not given), for narrowing a candidate
 window down from minutes to seconds once a broad region has been found.
+
+Each event may specify `target_houses` (a list of house numbers, 1-12)
+instead of (or alongside) `target_points`. When given, the natal-side
+targets for that event are computed dynamically per candidate as the
+"elements of house" (ruler, co-ruler, occupying planets - see
+engine/houses.py) for those houses, per the Shestopalov/Aizin school
+documented in help_texts/rectification.md. This must be recomputed per
+candidate because house cusps (and therefore rulers/co-rulers/occupants)
+shift with birth time.
 """
 
 from typing import Optional, List, Dict, Any
 
 from . import config
 from .chart import build_subject, natal_points_dict, subject_raw, resolve_fixed_offset_minutes
+from .houses import get_house_element_names
 from .techniques import (
     technique_transit, technique_secondary_progression, technique_solar_arc,
     technique_solar_return, technique_profection,
@@ -155,14 +165,15 @@ def run_scan(
             if technique == "profection":
                 # Profections make a narrow, specific claim (just the Lord of
                 # Year/Month/profected Ascendant) - score against ALL of
-                # natal_pts (which technique_profection already narrowed to
-                # exactly those points), not the caller's general
-                # target_points list (which is built for angle/luminary
-                # scanning and would silently score 0 here otherwise).
+                # natal_pts (already narrowed to exactly those points by
+                # technique_profection), not target_houses/target_points.
                 ev_orb_threshold = ev.get("orb_threshold", orb_threshold)
                 score = sum(1 for a in aspects if a["exact_orb"] <= ev_orb_threshold)
             else:
-                ev_target_points = ev.get("target_points", list(target_points))
+                if "target_houses" in ev:
+                    ev_target_points = get_house_element_names(n_raw, ev["target_houses"])
+                else:
+                    ev_target_points = ev.get("target_points", list(target_points))
                 ev_orb_threshold = ev.get("orb_threshold", orb_threshold)
                 score = sum(
                     1 for a in aspects

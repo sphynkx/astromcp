@@ -191,10 +191,20 @@ def rectif_scan(
     "solar_arc"|"solar_return"|"profection", target_year, target_month,
     target_day, target_hour?, target_minute?, target_second?, event_lat?,
     event_lng?, event_tz_str?, event_tz_offset_minutes?, angle_method?,
-    weight?, aspect_set?, orb_table?, target_points?, orb_threshold?}. For
-    technique="solar_return", only target_year is used. For
-    technique="profection", target_points is ignored (the technique fixes
-    its own natal-side targets: lord of the year/month, profected Asc).
+    weight?, aspect_set?, orb_table?, target_points?, target_houses?,
+    orb_threshold?}. For technique="solar_return", only target_year is
+    used. For technique="profection", target_points/target_houses are
+    ignored (the technique fixes its own natal-side targets: lord of the
+    year/month, profected Asc).
+
+    target_houses (list of house numbers, 1-12) is an alternative to
+    target_points: instead of a fixed point list, the natal-side targets
+    for that event become the "elements" of those houses (ruler, co-ruler,
+    occupying planets - recomputed fresh for every candidate, since house
+    rulership shifts with birth time) - see the Shestopalov/Aizin-school
+    methodology in help_texts/rectification.md for how to pick which
+    houses apply to a given event. If both target_points and target_houses
+    are given, target_houses takes precedence for that event.
     """
     return tools.rectif_scan(
         natal_year, natal_month, natal_day, natal_lat, natal_lng,
@@ -269,24 +279,39 @@ def rectif_trutina(
     zodiac_type: str = config.DEFAULT_ZODIAC_TYPE,
     initial_guess_hour: int = 12, initial_guess_minute: int = 0, initial_guess_second: int = 0,
     max_iterations: int = 30,
+    mother_year: Optional[int] = None, mother_month: Optional[int] = None, mother_day: Optional[int] = None,
+    mother_hour: Optional[int] = None, mother_minute: Optional[int] = None, mother_second: Optional[int] = None,
+    mother_lat: Optional[float] = None, mother_lng: Optional[float] = None,
+    mother_tz_str: Optional[str] = None, mother_tz_offset_minutes: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Trutine of Hermes (Trutina Hermetis): classical fast rectification via
     the reciprocal Moon/Ascendant relationship between the birth chart and
-    the theoretical conception (epoch) chart - see William Lilly, Christian
-    Astrology pp.502-505. Unlike rectif_scan, this does NOT need any life
-    events at all and does NOT brute-force many candidates - it solves
-    directly (a handful of chart builds via fixed-point iteration from
-    initial_guess_*), so it's fast and can be used as a first, resource-
-    light starting point even when nothing whatsoever is known about the
-    birth time.
+    the theoretical conception (epoch) chart - see Jan Kefer, Prakticka
+    Astrologie (1939), and W. Lilly, Christian Astrology pp.502-505 for the
+    gestation-length day-count refinement. Unlike rectif_scan, this does
+    NOT need any life events at all and does NOT brute-force many
+    candidates - it solves directly (a handful of chart builds via
+    fixed-point iteration from initial_guess_*), so it's fast and can be
+    used as a first, resource-light starting point even when nothing
+    whatsoever is known about the birth time.
 
-    Returns TWO branches (branch_moon_below_horizon_at_birth and
-    branch_moon_above_horizon_at_birth), because whether the Moon was above
-    or below the horizon at birth is itself part of what's being solved
-    for and can't be assumed. Compare both against any other evidence you
-    have (rough time-of-day testimony, or agreement with rectif_scan /
-    rectif_technique results from actual life events) to pick between them.
+    Returns FOUR branches (Kefer's original formulation treats Moon
+    above/below horizon and waxing/waning as two independent conditions,
+    not one condition with two states), because none of this can be known
+    without already knowing the birth time being solved for. Compare all
+    four against any other evidence you have (rough time-of-day testimony,
+    or agreement with rectif_scan / rectif_technique results from actual
+    life events) to pick between them.
+
+    Optional Jonas Rule refinement: if the mother's own birth data is
+    supplied (mother_year etc.), the conception DATE is fixed directly by
+    finding when the transiting Sun-Moon angular separation matches the
+    mother's natal Sun-Moon separation (Dr. Eugen Jonas's rule, medically
+    documented) - this removes the classical method's biggest weakness,
+    the ~10 candidate conception dates within the gestation window that
+    the classical rule alone cannot distinguish between. Worth asking for
+    if at all available.
 
     Documented limitations of the classical method itself (not this
     implementation): assumes conception occurred at the birth location,
@@ -304,6 +329,8 @@ def rectif_trutina(
         natal_year, natal_month, natal_day, natal_lat, natal_lng,
         natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
         initial_guess_hour, initial_guess_minute, initial_guess_second, max_iterations,
+        mother_year, mother_month, mother_day, mother_hour, mother_minute, mother_second,
+        mother_lat, mother_lng, mother_tz_str, mother_tz_offset_minutes,
     )
 
 

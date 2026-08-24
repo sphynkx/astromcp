@@ -1,13 +1,12 @@
 """
 Structural constants: which points/houses/angles kerykeion exposes, the
 zodiac sign ordering used to recompute sign fields after manually shifting
-a point's absolute position, and traditional sign rulerships (used by
-annual/monthly profections).
+a point's absolute position, and sign rulerships (traditional and modern).
 
 These are NOT meant to be tuned via .env - they reflect the shape of the
-data model or a fixed historical doctrine (traditional rulerships), not
-astrological preferences. For tunable settings (default house system, orb
-tables, luminary bonuses, scan defaults, etc.) see config.py.
+data model or a fixed historical doctrine, not astrological preferences.
+For tunable settings (default house system, orb tables, luminary bonuses,
+scan defaults, etc.) see config.py.
 """
 
 DEFAULT_POINTS = [
@@ -31,8 +30,7 @@ LUMINARY_NAMES = {"sun", "moon"}
 # Traditional (Hellenistic/medieval) sign rulerships - the 7 classical
 # planets only, no outer-planet "modern" rulers. This is the doctrine
 # profections are historically computed with, and deviating from it would
-# not be a neutral technical choice - see the discussion of Scorpio/
-# Aquarius/Pisces below.
+# not be a neutral technical choice.
 # Index 0=Aries ... 11=Pisces (matches SIGN_ORDER / sign_num from kerykeion).
 TRADITIONAL_RULERS = [
     "mars",     # Aries
@@ -47,4 +45,25 @@ TRADITIONAL_RULERS = [
     "saturn",   # Capricorn
     "saturn",   # Aquarius (traditional ruler; NOT uranus)
     "jupiter",  # Pisces (traditional ruler; NOT neptune)
+]
+
+# Modern rulerships (outer planets assigned to the signs they were
+# discovered "fitting"). This is the doctrine used by the 20th-century
+# Russian/Soviet rectification schools surveyed for this service
+# (Shestopalov, Aizin, Israitel and others use modern rulers for "elements
+# of house" - only profections specifically call for the traditional set
+# above).
+MODERN_RULERS = [
+    "mars",     # Aries
+    "venus",    # Taurus
+    "mercury",  # Gemini
+    "moon",     # Cancer
+    "sun",      # Leo
+    "mercury",  # Virgo
+    "venus",    # Libra
+    "pluto",    # Scorpio
+    "jupiter",  # Sagittarius
+    "saturn",   # Capricorn
+    "uranus",   # Aquarius
+    "neptune",  # Pisces
 ]
