@@ -11,10 +11,15 @@ from typing import Optional, List, Dict, Any
 from . import config
 from .chart import build_subject, serialize_subject, natal_points_dict, subject_raw, resolve_fixed_offset_minutes
 from .aspects import compute_aspects
-from .techniques import technique_transit, technique_secondary_progression, technique_solar_arc
+from .techniques import (
+    technique_transit, technique_secondary_progression, technique_solar_arc,
+    technique_solar_return, technique_profection,
+)
 from .scan import run_scan
+from .trutina import run_trutina_hermetis
 from .constants import DEFAULT_POINTS, LUMINARY_NAMES
 from .display import print_chart_result, print_technique_result, print_scan_result
+from .jobs import submit_job, get_job
 
 logger = logging.getLogger("astromcp")
 
@@ -115,6 +120,28 @@ def rectif_technique(
                 natal_lat, natal_lng, fixed_offset, house_system, zodiac_type,
                 n_raw, n_points, target_year, target_month, target_day,
             )
+        elif technique == "solar_return":
+            computed, natal_pts, meta = technique_solar_return(
+                natal_month, natal_day,
+                n_raw, n_points,
+                house_system, zodiac_type,
+                target_year,
+                event_lat if event_lat is not None else natal_lat,
+                event_lng if event_lng is not None else natal_lng,
+            )
+        elif technique == "profection":
+            ev_tz_str = event_tz_str
+            ev_tz_off = event_tz_offset_minutes
+            if ev_tz_str is None and ev_tz_off is None:
+                ev_tz_str, ev_tz_off = natal_tz_str, natal_tz_offset_minutes
+            computed, natal_pts, meta = technique_profection(
+                natal_year, natal_month, natal_day,
+                n_raw, n_points, house_system, zodiac_type,
+                target_year, target_month, target_day, target_hour, target_minute, target_second,
+                event_lat if event_lat is not None else natal_lat,
+                event_lng if event_lng is not None else natal_lng,
+                ev_tz_str, ev_tz_off,
+            )
         elif technique == "transit":
             ev_tz_str = event_tz_str
             ev_tz_off = event_tz_offset_minutes
@@ -142,14 +169,14 @@ def rectif_technique(
 
             if orb_table:
                 orb_tbl = {float(k): v for k, v in orb_table.items()}
-            elif technique == "transit":
+            elif technique in ("transit", "solar_return", "profection"):
                 orb_tbl = config.DEFAULT_ORB_TABLE_TRANSIT
             else:
                 orb_tbl = config.DEFAULT_ORB_TABLE_DIRECTION
 
             if luminary_orb_bonus is not None:
                 bonus = luminary_orb_bonus
-            elif technique == "transit":
+            elif technique in ("transit", "solar_return", "profection"):
                 bonus = config.LUMINARY_ORB_BONUS_TRANSIT
             else:
                 bonus = config.LUMINARY_ORB_BONUS_DIRECTION
@@ -191,6 +218,9 @@ def rectif_scan(
     orb_threshold: Optional[float] = None,
     top_n: int = 20,
     include_full_table: bool = False,
+    scan_start_second: int = 0,
+    scan_end_second: int = 59,
+    step_seconds: Optional[int] = None,
 ) -> Dict[str, Any]:
     house_system = house_system or config.DEFAULT_HOUSE_SYSTEM
     zodiac_type = zodiac_type or config.DEFAULT_ZODIAC_TYPE
@@ -207,12 +237,102 @@ def rectif_scan(
             orb_threshold=orb_threshold,
             top_n=top_n,
             include_full_table=include_full_table,
+            scan_start_second=scan_start_second,
+            scan_end_second=scan_end_second,
+            step_seconds=step_seconds,
         )
         if config.CONSOLE_RESULT_PREVIEW:
             print_scan_result(result)
         return result
     except Exception as e:
         logger.exception("rectif_scan failed")
+        return {"error": str(e)}
+
+
+def rectif_scan_start(
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_lat: float, natal_lng: float,
+    natal_tz_str: Optional[str] = None,
+    natal_tz_offset_minutes: Optional[int] = None,
+    house_system: Optional[str] = None,
+    zodiac_type: Optional[str] = None,
+    scan_start_hour: int = 0, scan_start_minute: int = 0,
+    scan_end_hour: int = 23, scan_end_minute: int = 59,
+    step_minutes: int = 2,
+    events: Optional[List[Dict[str, Any]]] = None,
+    target_points: Optional[List[str]] = None,
+    aspect_set: Optional[List[float]] = None,
+    orb_threshold: Optional[float] = None,
+    top_n: int = 20,
+    include_full_table: bool = False,
+    scan_start_second: int = 0,
+    scan_end_second: int = 59,
+    step_seconds: Optional[int] = None,
+) -> Dict[str, Any]:
+    house_system = house_system or config.DEFAULT_HOUSE_SYSTEM
+    zodiac_type = zodiac_type or config.DEFAULT_ZODIAC_TYPE
+    if not events:
+        return {"error": "events list is required and must be non-empty"}
+    job_id = submit_job(
+        run_scan,
+        natal_year, natal_month, natal_day, natal_lat, natal_lng,
+        natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
+        scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
+        step_minutes, events,
+        target_points=target_points,
+        aspect_set=aspect_set,
+        orb_threshold=orb_threshold,
+        top_n=top_n,
+        include_full_table=include_full_table,
+        scan_start_second=scan_start_second,
+        scan_end_second=scan_end_second,
+        step_seconds=step_seconds,
+    )
+    logger.info(f"astromcp: scan job {job_id} submitted ({len(events)} events)")
+    return {"job_id": job_id, "status": "running"}
+
+
+def rectif_scan_result(job_id: str) -> Dict[str, Any]:
+    result = get_job(job_id)
+    if config.CONSOLE_RESULT_PREVIEW and result.get("status") == "done":
+        print_scan_result(result["result"])
+    return result
+
+
+def rectif_trutina(
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_lat: float, natal_lng: float,
+    natal_tz_str: Optional[str] = None,
+    natal_tz_offset_minutes: Optional[int] = None,
+    house_system: Optional[str] = None,
+    zodiac_type: Optional[str] = None,
+    initial_guess_hour: int = 12, initial_guess_minute: int = 0, initial_guess_second: int = 0,
+    max_iterations: int = 30,
+) -> Dict[str, Any]:
+    house_system = house_system or config.DEFAULT_HOUSE_SYSTEM
+    zodiac_type = zodiac_type or config.DEFAULT_ZODIAC_TYPE
+    try:
+        result = run_trutina_hermetis(
+            natal_year, natal_month, natal_day, natal_lat, natal_lng,
+            natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
+            initial_guess_hour, initial_guess_minute, initial_guess_second,
+            max_iterations,
+        )
+        if config.CONSOLE_RESULT_PREVIEW:
+            logger.info(
+                "  trutina: below=%02d:%02d:%02d (converged=%s)  above=%02d:%02d:%02d (converged=%s)",
+                result["branch_moon_below_horizon_at_birth"]["rectified_hour"],
+                result["branch_moon_below_horizon_at_birth"]["rectified_minute"],
+                result["branch_moon_below_horizon_at_birth"]["rectified_second"],
+                result["branch_moon_below_horizon_at_birth"]["converged"],
+                result["branch_moon_above_horizon_at_birth"]["rectified_hour"],
+                result["branch_moon_above_horizon_at_birth"]["rectified_minute"],
+                result["branch_moon_above_horizon_at_birth"]["rectified_second"],
+                result["branch_moon_above_horizon_at_birth"]["converged"],
+            )
+        return result
+    except Exception as e:
+        logger.exception("rectif_trutina failed")
         return {"error": str(e)}
 
 

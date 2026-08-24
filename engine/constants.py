@@ -1,12 +1,13 @@
 """
-Structural constants: which points/houses/angles kerykeion exposes, and the
+Structural constants: which points/houses/angles kerykeion exposes, the
 zodiac sign ordering used to recompute sign fields after manually shifting
-a point's absolute position (e.g. solar arc direction).
+a point's absolute position, and traditional sign rulerships (used by
+annual/monthly profections).
 
 These are NOT meant to be tuned via .env - they reflect the shape of the
-data model (what kerykeion returns), not astrological preferences. For
-tunable settings (default house system, orb tables, luminary bonuses,
-scan defaults, etc.) see config.py.
+data model or a fixed historical doctrine (traditional rulerships), not
+astrological preferences. For tunable settings (default house system, orb
+tables, luminary bonuses, scan defaults, etc.) see config.py.
 """
 
 DEFAULT_POINTS = [
@@ -26,3 +27,24 @@ ANGLE_KEYS = ["ascendant", "descendant", "medium_coeli", "imum_coeli"]
 SIGN_ORDER = ["Ari", "Tau", "Gem", "Can", "Leo", "Vir", "Lib", "Sco", "Sag", "Cap", "Aqu", "Pis"]
 
 LUMINARY_NAMES = {"sun", "moon"}
+
+# Traditional (Hellenistic/medieval) sign rulerships - the 7 classical
+# planets only, no outer-planet "modern" rulers. This is the doctrine
+# profections are historically computed with, and deviating from it would
+# not be a neutral technical choice - see the discussion of Scorpio/
+# Aquarius/Pisces below.
+# Index 0=Aries ... 11=Pisces (matches SIGN_ORDER / sign_num from kerykeion).
+TRADITIONAL_RULERS = [
+    "mars",     # Aries
+    "venus",    # Taurus
+    "mercury",  # Gemini
+    "moon",     # Cancer
+    "sun",      # Leo
+    "mercury",  # Virgo
+    "venus",    # Libra
+    "mars",     # Scorpio (traditional ruler; NOT pluto)
+    "jupiter",  # Sagittarius
+    "saturn",   # Capricorn
+    "saturn",   # Aquarius (traditional ruler; NOT uranus)
+    "jupiter",  # Pisces (traditional ruler; NOT neptune)
+]

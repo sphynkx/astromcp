@@ -60,9 +60,12 @@ def print_scan_result(data: dict) -> None:
         logger.info("  -> ERROR: %s", data["error"])
         return
     logger.info(
-        "  scan: %d candidates, step=%d min",
-        data.get("candidates_tested"), data.get("step_minutes"),
+        "  scan: %d candidates, step=%ds",
+        data.get("candidates_tested"), data.get("step_seconds", 0),
     )
     for r in data.get("top_results", [])[:15]:
         per_ev = " ".join(f"{k}={v.get('score', '?')}" for k, v in r.get("per_event", {}).items())
-        logger.info("    %02d:%02d  score=%8.2f  %s", r["hour"], r["minute"], r["total_score"], per_ev)
+        logger.info(
+            "    %02d:%02d:%02d  score=%8.2f  %s",
+            r["hour"], r["minute"], r.get("second", 0), r["total_score"], per_ev,
+        )
