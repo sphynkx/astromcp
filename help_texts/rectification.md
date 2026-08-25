@@ -112,11 +112,43 @@ is interpretation dressed up as data. If the person explicitly wants to
 experiment with weighting, that's their call to make explicitly
 per-event - not a default you apply.
 
-If you do want a principled, non-subjective reason to weight events
-differently, weight by **how precisely the event's date/time is known**
-(a dated-to-the-second event is a sharper astrological test than "some
-time in 1988"), not by presumed psychological importance - this reflects
-real signal quality rather than your read of the person's character.
+## No invented scoring - reproduce a documented criterion, or say you can't
+
+This is a stronger, later correction to the point above, and supersedes
+it where they'd conflict: it turned out that `rectif_scan`'s entire
+scoring mechanism - summing a hit-count across many events into one
+number, then ranking candidates by that number - is not a documented
+method from ANY surveyed source either. It was invented for this
+service, the same way per-event weights were, and was presented at one
+point as if agreement between two runs of it constituted real
+cross-validation. It doesn't, on its own: no author sums or ranks this
+way.
+
+**Going forward: reproduce a named author's literal decision rule, and
+report only the times that satisfy it - not a score, not a ranking.**
+`rectif_movements_scan` does this for Grishchenyuk's three-movements
+rule (>=2 of 3 movements concordant - the source's own threshold, not an
+invented one) and returns `qualifying_times`, a chronological list, not a
+leaderboard. Prefer it (or another criterion-based tool, as they're
+added) over `rectif_scan` for anything you intend to draw a conclusion
+from. `rectif_scan` still exists and is not removed - it's fine for
+rough, clearly-labeled exploration ("where might it be worth aiming a
+real check") - but do not call its output "confirmed", do not call
+agreement between it and a real criterion "cross-validation", and do not
+present a `total_score` difference as evidence of anything.
+
+**Combining evidence across multiple events**: not by summing or
+averaging. Run the criterion once per event, get each event's
+`qualifying_times`, and intersect the sets - only keep candidates that
+qualify for EVERY event checked. This is the iterative-narrowing
+practice A. Budarovsky's worked example actually uses (a coarse
+candidate set, progressively eliminated event by event) and is also how
+S. Aizin's interval-intersection algorithm works. If several events'
+qualifying sets don't intersect at all, that's a real, informative
+result (the events are inconsistent with each other under this
+technique/house-system combination) - report it as such, don't fall
+back to picking whichever candidate scored highest on some invented
+metric.
 
 ## Realistic expectations
 
@@ -212,20 +244,27 @@ use `rectif_scan_start` + poll `rectif_scan_result` instead of blocking on
 ## Practical scan workflow
 
 1. `rectif_trutina` for a free first estimate (ask for the mother's birth
-   data if at all possible, to enable the Jonas Rule refinement).
-2. A coarse `rectif_scan` (or `_start` if solar_return is involved) across
-   the full day, step a few minutes, using profections and solar_arc
-   directions as the primary events - prefer `target_houses` (reasoned
-   per-event, see above) over the generic angle/luminary default
-   `target_points` wherever you can identify which houses genuinely apply.
-3. Narrow to the leading window(s) with a finer step (`step_seconds` is
-   supported for sub-minute precision once a region is found).
-4. Cross-check the leading candidate(s) with `rectif_technique` calls
+   data if at all possible, to enable the Jonas Rule refinement). Its
+   output is itself not a score - it's a direct solve, or an honestly
+   reported non-convergent cycle - so no conflict with the no-scoring
+   policy above.
+2. Optionally, a coarse `rectif_scan` run (clearly labeled as
+   exploratory, per "No invented scoring" above) to get a rough sense of
+   where the real check in step 3 might be worth aiming - or skip
+   straight to step 3 across the full day if you'd rather not rely on it
+   at all.
+3. `rectif_movements_scan`, once per event, using `target_houses`
+   (reasoned per-event, see above) and Koch houses. Take each event's
+   `qualifying_times` and intersect them across events, narrowing the
+   surviving candidate set - not by summing anything.
+4. Narrow further with a finer step (`step_seconds` supported) once a
+   surviving window is small.
+5. Cross-check the surviving candidate(s) with `rectif_technique` calls
    using transits on events with an exactly known date/time, and
    optionally solar returns, before presenting a final answer.
-5. If different technique families disagree on the leading candidate,
-   say so explicitly rather than picking one silently - see "Realistic
-   expectations" above.
+6. If different documented criteria disagree, or qualifying sets don't
+   intersect at all, say so explicitly rather than picking one silently -
+   see "Realistic expectations" above.
 
 ## Sources surveyed
 

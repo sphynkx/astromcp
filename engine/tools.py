@@ -17,6 +17,7 @@ from .techniques import (
 )
 from .scan import run_scan
 from .trutina import run_trutina_hermetis
+from .criteria import run_three_movements_scan
 from .help import get_help
 from .constants import DEFAULT_POINTS, LUMINARY_NAMES
 from .display import print_chart_result, print_technique_result, print_scan_result
@@ -337,6 +338,47 @@ def rectif_trutina(
         return result
     except Exception as e:
         logger.exception("rectif_trutina failed")
+        return {"error": str(e)}
+
+
+def rectif_movements_scan(
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_lat: float, natal_lng: float,
+    natal_tz_str: Optional[str] = None,
+    natal_tz_offset_minutes: Optional[int] = None,
+    house_system: Optional[str] = None,
+    zodiac_type: Optional[str] = None,
+    scan_start_hour: int = 0, scan_start_minute: int = 0,
+    scan_end_hour: int = 23, scan_end_minute: int = 59,
+    step_minutes: int = 2,
+    target_year: int = 2000, target_month: int = 1, target_day: int = 1,
+    target_houses: Optional[List[int]] = None,
+    target_points: Optional[List[str]] = None,
+    direction_orb_deg: float = 1.0,
+    transit_orb_deg: float = 3.0,
+    scan_start_second: int = 0, scan_end_second: int = 59,
+    step_seconds: Optional[int] = None,
+) -> Dict[str, Any]:
+    house_system = house_system or config.DEFAULT_HOUSE_SYSTEM
+    zodiac_type = zodiac_type or config.DEFAULT_ZODIAC_TYPE
+    try:
+        result = run_three_movements_scan(
+            natal_year, natal_month, natal_day, natal_lat, natal_lng,
+            natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
+            scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
+            step_minutes, target_year, target_month, target_day,
+            target_houses, target_points, direction_orb_deg, transit_orb_deg,
+            scan_start_second, scan_end_second, step_seconds,
+        )
+        if config.CONSOLE_RESULT_PREVIEW:
+            logger.info(
+                "  three_movements: %d/%d candidates qualify (>=2 of 3), %d windows",
+                result["candidates_qualifying_raw_count"], result["candidates_tested"],
+                len(result["qualifying_windows"]),
+            )
+        return result
+    except Exception as e:
+        logger.exception("rectif_movements_scan failed")
         return {"error": str(e)}
 
 

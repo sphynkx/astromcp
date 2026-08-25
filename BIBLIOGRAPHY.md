@@ -230,22 +230,3 @@ house", "Pluto in the 5th house") known independently of exact degrees.
 character/appearance descriptions bundled with the same course as
 above). — Qualitative/physiognomic rectification material, not a
 distinct quantitative technique; not surveyed in depth.
-
-## Not accessible
-
-**Dobbins, ?.** "Прогрессии, дирекции и ректификация" (Progressions,
-directions and rectification). — Supplied only as a `.djvu` file; this
-environment has no DjVu decoder available and no network access to
-install one. Not read. Given the title, likely overlaps substantially
-with Israitel's directions-vs-progressions material above, but this has
-not been confirmed.
-
-**"Мастер-класс астрологии" compilation, Vol. 1** (Israitel, Hammerslaf,
-Brady, Meadows) and **Vol. 2** (attributed to Til, Kolesnikov, Lyavua on
-the file name, later confirmed to be the same underlying file as
-Matveeva's book, i.e. Til's methodology under a different title/wrapper).
-— Supplied as `.djvu`; not read directly. Vol. 1's named authors are
-already covered individually above via their standalone works. Vol. 2 /
-Matveeva (Til's methodology) was not read; per the project owner's
-inspection, unlikely to add substantially new material beyond what's
-already covered.

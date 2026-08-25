@@ -125,6 +125,49 @@ def technique_solar_arc(
     }
 
 
+def technique_symbolic_direction(
+    natal_year, natal_month, natal_day, natal_hour, natal_minute, natal_second,
+    natal_lat, natal_lng, fixed_offset,
+    house_system, zodiac_type,
+    natal_raw: Dict[str, Any],
+    natal_points: Dict[str, Dict[str, Any]],
+    target_year, target_month, target_day,
+    rate_deg_per_year: float = 1.0,
+):
+    """
+    Whole-chart symbolic direction at a FLAT rate (degrees advanced =
+    elapsed_years * rate_deg_per_year), as opposed to technique_solar_arc's
+    astronomically-derived arc (actual motion of the transiting Sun). Two
+    documented rates use this same mechanism under different names:
+    - rate_deg_per_year=1.0: the classical "degree for a year" symbolic
+      direction.
+    - rate_deg_per_year=30.0: "perfection" / "fast progression"
+      (Zaprjagaev's "method of annual revolution"; Shestopalov-school
+      usage) - one whole sign per year, returning to the natal position
+      every 12 years.
+    Neither is tied to where the real Sun actually is on the target date -
+    that distinction is what separates this from technique_solar_arc.
+    """
+    natal_civil_date = date(natal_year, natal_month, natal_day)
+    target_civil_date = date(target_year, target_month, target_day)
+    elapsed_years = (target_civil_date - natal_civil_date).days / 365.2425
+    arc = (elapsed_years * rate_deg_per_year) % 360
+
+    computed = {}
+    for key in DEFAULT_POINTS + ANGLE_KEYS:
+        if key in natal_raw:
+            base = dict(natal_raw[key])
+            base = recompute_sign_fields(base, base["abs_pos"] + arc)
+            base["speed"] = 1.0
+            computed[key] = base
+
+    return computed, natal_points, {
+        "elapsed_years": round(elapsed_years, 4),
+        "rate_deg_per_year": rate_deg_per_year,
+        "arc_deg": round(arc, 4),
+    }
+
+
 def _find_solar_return_utc(
     natal_month: int, natal_day: int,
     natal_sun_abs_pos: float,

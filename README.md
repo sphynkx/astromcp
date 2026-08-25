@@ -68,9 +68,10 @@ modified, or reused independently.
 | `rectif_chart_batch` | Batch version of the above |
 | `rectif_technique` | One technique - transit / secondary progression / solar arc direction / solar return / profection - with aspects to the natal chart |
 | `rectif_technique_batch` | Batch version of the above |
-| `rectif_scan` | Sweeps a range of candidate birth times against a set of life events, returns ranked candidates - the core rectification engine (synchronous) |
+| `rectif_scan` | EXPLORATORY ONLY (see help_texts/rectification.md "No invented scoring") - sums an arbitrary hit-count into a ranking not documented by any surveyed source; useful for a rough sense of where to look, not for conclusions |
 | `rectif_scan_start` / `rectif_scan_result` | Async version of rectif_scan (submit + poll) - use for large scans or `technique="solar_return"`, which can otherwise exceed MCP/proxy timeouts |
 | `rectif_trutina` | Trutine of Hermes: fast, direct classical rectification via the conception (epoch) chart - needs no life events at all |
+| `rectif_movements_scan` | Grishchenyuk's literal "3 movements" criterion (>=2 of 3 concordant) - returns qualifying times, not scores |
 | `help` | Reads a methodology/usage guide from `help_texts/*.md` - see below |
 | `ping` | Connectivity test |
 

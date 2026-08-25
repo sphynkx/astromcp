@@ -179,6 +179,16 @@ def rectif_scan(
     step_seconds: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
+    EXPLORATORY / HEURISTIC ONLY - this tool's scoring (summing a hit-count
+    across events into total_score, then ranking candidates by that number)
+    is NOT a documented rectification method from any surveyed source. It
+    was invented for this service and should not be presented as
+    "confirmed" or "the most likely time" on its own. Prefer
+    rectif_movements_scan (Grishchenyuk's literal 2-of-3 movements rule)
+    or another criterion-based tool for anything you intend to draw a
+    conclusion from; use this one only to get a rough sense of where to
+    aim a real criterion-based check, per help_texts/rectification.md.
+
     Synchronous scan: sweeps candidate birth times across [scan_start,
     scan_end] on the given birth date (in step_minutes, or step_seconds for
     sub-minute precision), scores every event in `events` per candidate, and
@@ -331,6 +341,70 @@ def rectif_trutina(
         initial_guess_hour, initial_guess_minute, initial_guess_second, max_iterations,
         mother_year, mother_month, mother_day, mother_hour, mother_minute, mother_second,
         mother_lat, mother_lng, mother_tz_str, mother_tz_offset_minutes,
+    )
+
+
+@mcp.tool()
+def rectif_movements_scan(
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_lat: float, natal_lng: float,
+    natal_tz_str: Optional[str] = None,
+    natal_tz_offset_minutes: Optional[int] = None,
+    house_system: str = config.DEFAULT_HOUSE_SYSTEM,
+    zodiac_type: str = config.DEFAULT_ZODIAC_TYPE,
+    scan_start_hour: int = 0, scan_start_minute: int = 0,
+    scan_end_hour: int = 23, scan_end_minute: int = 59,
+    step_minutes: int = 2,
+    target_year: int = 2000, target_month: int = 1, target_day: int = 1,
+    target_houses: Optional[List[int]] = None,
+    target_points: Optional[List[str]] = None,
+    direction_orb_deg: float = 1.0,
+    transit_orb_deg: float = 3.0,
+    scan_start_second: int = 0, scan_end_second: int = 59,
+    step_seconds: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    A. Grishchenyuk (1996), transcribing the Zaprjagaev -> Vronsky ->
+    Shestopalov method (St. Petersburg Academy of Astrology), reproduced
+    literally - NOT a score. For ONE event (given by target_year/month/day
+    and either target_houses or target_points), checks at every candidate
+    birth time whether at least 2 of 3 independent "movements" -
+    secondary progression, "perfection" (whole-chart symbolic direction
+    at 30 deg/year), and transit - each produce at least one hard aspect
+    (conjunction/square/opposition, within direction_orb_deg for the two
+    directed movements and transit_orb_deg for the transit) to the
+    event's targets. The source states this threshold explicitly:
+    3-of-3 concordant movements means ~100% probability the event maps to
+    that candidate time; 2-of-3 means ~66%. Below that, the source does
+    not consider the time confirmed at all.
+
+    Returns qualifying_windows: contiguous [start, end] time ranges meeting
+    the >=2-of-3 threshold, each labeled with which movements hit and the
+    source's own stated concordance level (3-of-3 or 2-of-3) - grouped
+    from consecutive qualifying candidates rather than listed one by one,
+    purely to keep the result compact; NOT ranked or scored. Check
+    candidates_qualifying_raw_count against candidates_tested - if a large
+    fraction of the day qualifies, the orbs are too loose to narrow
+    anything on this event alone; tighten direction_orb_deg/
+    transit_orb_deg, or rely on intersecting with other events instead.
+    To combine evidence across several events (the real rectification
+    workflow - see help_texts/rectification.md), call this once per event
+    and intersect the qualifying windows by hand (only keep times that
+    qualify for every event checked), the way A. Budarovsky's worked
+    example does it - narrow with one event, then re-check only the
+    surviving window with the next. Do not sum or average results across
+    events.
+
+    house_system should be Koch ("K") - the source is explicit that this
+    technique is tied to Koch houses specifically.
+    """
+    return tools.rectif_movements_scan(
+        natal_year, natal_month, natal_day, natal_lat, natal_lng,
+        natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
+        scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
+        step_minutes, target_year, target_month, target_day,
+        target_houses, target_points, direction_orb_deg, transit_orb_deg,
+        scan_start_second, scan_end_second, step_seconds,
     )
 
 
