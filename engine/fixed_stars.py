@@ -77,10 +77,14 @@ def compute_fixed_stars(
     out: Dict[str, Dict[str, Any]] = {}
     for star_name in stars:
         try:
-            # fixstar2_ut returns ((lon, lat, dist, lon_speed, lat_speed,
-            # dist_speed), resolved_star_name)
-            (lon, lat, dist, *_), resolved_name = swe.fixstar2_ut(star_name, julian_day_ut, flags)
-            mag = swe.fixstar2_mag(star_name)[0]
+            # fixstar2_ut returns a 3-tuple: (xx, stnam, retflags) - NOT
+            # (xx, stnam) as an earlier version of this file assumed (that
+            # caused "too many values to unpack (expected 2)" on every
+            # star). xx itself is a tuple of 6 floats: lon, lat, dist,
+            # lon_speed, lat_speed, dist_speed.
+            xx, resolved_name, retflags = swe.fixstar2_ut(star_name, julian_day_ut, flags)
+            lon, lat, dist = xx[0], xx[1], xx[2]
+            mag, _ = swe.fixstar2_mag(star_name)
             entry = _sign_and_position(lon)
             entry["ecliptic_latitude"] = lat
             entry["distance_au"] = dist

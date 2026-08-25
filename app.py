@@ -622,6 +622,57 @@ def rectif_herich_scan(
     )
 
 
+ASTRO_HELP_DOC = {
+    "title": "astromcp /astro - available parameters",
+    "content": (
+        "GET /astro returns a full natal chart (planets, houses, aspects, "
+        "fixed stars, Arabic Part of Fortune) as flat JSON, meant for "
+        "MediaWiki's External Data extension or any other plain HTTP JSON "
+        "caller. Requires at least 'date' plus a location (lat+lon, or "
+        "city)."
+    ),
+    "params": {
+        "date": "required. DD.MM.YYYY",
+        "time": "optional. HH:MM or HH:MM:SS, default 12:00",
+        "lat, lon": "decimal degrees ('lng' also accepted as an alias for 'lon')",
+        "city": "city name, resolved offline via geonamescache if lat/lon are not given",
+        "country_code": "optional ISO 3166-1 alpha-2 to disambiguate a common city name, e.g. UA",
+        "tz": "IANA timezone name, e.g. Europe/Kyiv",
+        "tz_offset": (
+            "whole-hour UTC offset in minutes, e.g. 180 for UTC+3; overrides "
+            "'tz' if both are given. If neither tz nor tz_offset is given, "
+            "falls back to timezonefinder's MODERN zone lookup - not safe "
+            "for historical dates, pass one explicitly for those"
+        ),
+        "house_system": (
+            "single-letter kerykeion code, default from ASTROMCP_HOUSE_SYSTEM "
+            "(P=Placidus, K=Koch, W=Whole Sign, E=Equal, R=Regiomontanus, "
+            "C=Campanus, O=Porphyry, M=Morinus). One system per call"
+        ),
+        "no_aspects": "=1 to omit the 'aspects' section",
+        "no_house_cusp_aspects": "=1 to compute aspects for planets/angles only, excluding the 12 house cusps as targets",
+        "no_stars": "=1 to omit 'fixed_stars' / 'fixed_star_conjunctions'",
+        "no_parts": "=1 to omit 'arabic_parts'",
+    },
+    "examples": [
+        "GET /astro?date=23.11.1993&time=14:30&lat=50.45&lon=30.52",
+        "GET /astro?date=23.11.1993&time=14:30&city=Kyiv",
+        "GET /astro?date=23.11.1993&time=14:30&city=Kyiv&house_system=K",
+    ],
+}
+
+
+def _astro_error(message: str, status_code: int) -> JSONResponse:
+    """
+    Every error response from /astro carries the same 'help' block as a
+    bare request with no params does (see astro_report below) - so a
+    typo'd param or a missing 'date' doesn't send the caller hunting
+    through README.md, whether they're at a curl prompt or parsing this
+    from a MediaWiki External Data call.
+    """
+    return JSONResponse({"error": message, "help": ASTRO_HELP_DOC}, status_code=status_code)
+
+
 @mcp.custom_route("/astro", methods=["GET"])
 async def astro_report(request: Request) -> JSONResponse:
     """
@@ -630,54 +681,57 @@ async def astro_report(request: Request) -> JSONResponse:
     JSON caller. Lives on the same host/port as the MCP endpoint (no new
     infra, no nginx changes) via Starlette's custom_route mechanism.
 
+    GET /astro with no query params at all returns ASTRO_HELP_DOC directly
+    (status 200, not an error) - a bare request is discovery, not a
+    mistake. Any request that has params but is invalid or incomplete
+    returns {"error": ..., "help": ASTRO_HELP_DOC} instead, so the same
+    parameter reference is always one field away rather than only living
+    in README.md.
+
     GET /astro?date=23.11.1993&time=14:30&lat=50.45&lon=30.52
     GET /astro?date=23.11.1993&time=14:30&city=Kyiv
 
-    Query params:
-      date            required, DD.MM.YYYY
-      time            optional, HH:MM or HH:MM:SS (default 12:00)
-      lat, lon        decimal degrees (lng also accepted as an alias for lon)
-      city             city name, resolved via the offline geonamescache
-                       dataset if lat/lon are not given (see engine/geocode.py)
-      country_code     optional ISO 3166-1 alpha-2, disambiguates a common
-                       city name (e.g. country_code=UA)
-      tz               IANA zone name (e.g. Europe/Kyiv)
-      tz_offset        whole-hour UTC offset in minutes (e.g. 180 for UTC+3);
-                       overrides tz if both given
-                       If neither tz nor tz_offset is given, falls back to
-                       timezonefinder's MODERN zone lookup - see
-                       engine/public_api.py's docstring on why this is not
-                       safe for historical dates.
-      house_system     single-letter kerykeion code, default from
-                       ASTROMCP_HOUSE_SYSTEM (P=Placidus, K=Koch, W=Whole
-                       Sign, ...). One system per call - see
-                       engine/public_api.py for why several at once isn't
-                       offered here.
-      no_aspects=1              omit the "aspects" section
-      no_house_cusp_aspects=1   compute aspects for planets/angles only,
-                                excluding the 12 house cusps as targets
-      no_stars=1                omit "fixed_stars"/"fixed_star_conjunctions"
-      no_parts=1                omit "arabic_parts"
+    See ASTRO_HELP_DOC above for the full parameter list - kept in one
+    place so the docstring here and the runtime help response can't drift
+    apart.
     """
     q = request.query_params
+    if len(q) == 0:
+        return JSONResponse({"help": ASTRO_HELP_DOC})
+
     try:
         date_str = q.get("date")
         if not date_str:
-            return JSONResponse({"error": "missing required 'date' param (DD.MM.YYYY)"}, status_code=400)
-        day, month, year = (int(x) for x in date_str.split("."))
+            return _astro_error("missing required 'date' param (DD.MM.YYYY)", 400)
+        try:
+            day, month, year = (int(x) for x in date_str.split("."))
+        except ValueError:
+            return _astro_error(f"invalid 'date' value '{date_str}' - expected DD.MM.YYYY", 400)
 
         time_str = q.get("time", "12:00")
-        time_parts = time_str.split(":")
-        hour, minute = int(time_parts[0]), int(time_parts[1])
-        second = int(time_parts[2]) if len(time_parts) > 2 else 0
+        try:
+            time_parts = time_str.split(":")
+            hour, minute = int(time_parts[0]), int(time_parts[1])
+            second = int(time_parts[2]) if len(time_parts) > 2 else 0
+        except (ValueError, IndexError):
+            return _astro_error(f"invalid 'time' value '{time_str}' - expected HH:MM or HH:MM:SS", 400)
 
-        lat = float(q["lat"]) if "lat" in q else None
-        lng = float(q["lon"]) if "lon" in q else (float(q["lng"]) if "lng" in q else None)
+        try:
+            lat = float(q["lat"]) if "lat" in q else None
+            lng = float(q["lon"]) if "lon" in q else (float(q["lng"]) if "lng" in q else None)
+        except ValueError:
+            return _astro_error("invalid 'lat'/'lon' value - expected decimal degrees", 400)
         city = q.get("city")
         country_code = q.get("country_code")
 
+        if lat is None and lng is None and not city:
+            return _astro_error("provide either lat+lon, or a city name", 400)
+
         tz_str = q.get("tz")
-        tz_offset = int(q["tz_offset"]) if "tz_offset" in q else None
+        try:
+            tz_offset = int(q["tz_offset"]) if "tz_offset" in q else None
+        except ValueError:
+            return _astro_error("invalid 'tz_offset' value - expected whole minutes, e.g. 180", 400)
 
         house_system = q.get("house_system")
 
@@ -694,12 +748,12 @@ async def astro_report(request: Request) -> JSONResponse:
         return JSONResponse(result)
 
     except GeocodeError as e:
-        return JSONResponse({"error": str(e)}, status_code=404)
+        return _astro_error(str(e), 404)
     except ValueError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        return _astro_error(str(e), 400)
     except Exception as e:
         logger.exception("astro_report failed")
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return _astro_error(str(e), 500)
 
 
 @mcp.tool()

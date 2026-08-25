@@ -121,6 +121,16 @@ several systems' cusps into one flat response would make it ambiguous
 which system a given cusp or aspect belongs to. Call the endpoint twice
 with different `house_system` values if a page genuinely needs both.
 
+**Discovering the parameters**: `GET /astro` with no query string at all
+returns the parameter reference (`ASTROMCP_HELP_DOC` in `app.py`) as JSON
+instead of an error - useful for a quick `curl` sanity check. Any request
+that has params but is invalid or incomplete (missing `date`, unparsable
+`time`, unknown city, ...) returns `{"error": ..., "help": {...}}` with
+that same reference attached, so the parameter list is always one field
+away rather than only living in this README - readable directly in a
+terminal (`curl ... | jq`) and just as easy for a MediaWiki-side script to
+parse and surface to an editor who fat-fingered a query.
+
 City-name lookup (`&city=...`) and timezone auto-resolution (when neither
 `&tz=` nor `&tz_offset=` is given) are both **offline** - `geonamescache`
 for the former, `timezonefinder` for the latter - no live external
