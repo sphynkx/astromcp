@@ -2,3 +2,10 @@ mcp[cli]>=1.10.1,<2.0.0
 kerykeion>=5.0.0
 python-dotenv>=1.0.0
 tzdata>=2024.1
+
+# Added for the /astro REST endpoint (engine/public_api.py, engine/geocode.py,
+# engine/fixed_stars.py) - not required by the MCP rectification tools alone.
+pyswisseph>=2.10.3.2   # kerykeion already depends on this transitively; pinned
+                       # explicitly since fixed_stars.py imports it directly
+geonamescache>=2.0.0   # offline city-name -> coordinates lookup
+timezonefinder>=6.5.0  # offline coordinates -> modern IANA timezone lookup

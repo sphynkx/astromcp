@@ -50,10 +50,20 @@ an MCP connector (streamable-http transport), not fetched as a plain URL.
         ├── techniques.py       # transit / progression / solar arc / solar return / profection
         ├── trutina.py          # Trutine of Hermes (classical rectification, no events needed)
         ├── scan.py             # rectif_scan: sweeps candidate birth times
+        ├── criteria.py         # Grishchenyuk / Timoshenko / Bonatti / Herich criterion tests
+        ├── clustering.py       # Israitel/Brady degree-clustering rectification
+        ├── arabic_parts.py     # Part of Fortune + Kutalev's general Lot formula
+        ├── relations.py        # "elements of house" - see houses.py
+        ├── houses.py           # house ruler/co-ruler/occupant lookups
         ├── jobs.py             # in-memory async job registry for long scans
         ├── help.py             # reads help_texts/*.md on demand
-        ├── tools.py            # tool implementations (no MCP dependency)
-        └── display.py          # human-readable console summaries
+        ├── tools.py            # MCP tool implementations (no MCP dependency itself)
+        ├── display.py          # human-readable console summaries
+        ├── geocode.py          # offline city->coords (geonamescache) and coords->tz
+        │                       # (timezonefinder) lookups - used only by public_api.py
+        ├── fixed_stars.py      # fixed-star positions via pyswisseph, used only by
+        │                       # public_api.py - not used by any rectification tool
+        └── public_api.py       # builds the flat JSON for the /astro REST endpoint
 
 `app.py` deliberately contains no astrological logic - it only registers
 MCP tools and delegates to `engine/tools.py`. This keeps the transport layer
@@ -77,6 +87,57 @@ modified, or reused independently.
 
 Full parameter reference is in the docstrings in `app.py` (visible to the
 MCP client, including the LLM, at call time).
+
+## REST endpoint for non-MCP callers (MediaWiki, etc.)
+
+`GET /astro` is a plain HTTP endpoint alongside the MCP tools above,
+registered via `@mcp.custom_route` in `app.py` - it runs in the same
+process, on the same host/port, so no separate service or reverse-proxy
+change is needed. It answers a different question than the MCP tools do:
+"give me everything the ephemeris knows about this date/time/place" in one
+call, in a flat JSON shape meant for consumers like MediaWiki's
+[External Data](https://www.mediawiki.org/wiki/Extension:External_Data)
+extension, which needs simple dotted/array paths into the response rather
+than kerykeion's native field names.
+
+    GET /astro?date=23.11.1993&time=14:30&lat=50.45&lon=30.52
+    GET /astro?date=23.11.1993&time=14:30&city=Kyiv
+
+Response shape (see `engine/public_api.py` for the full docstring):
+
+    {
+      "planets": {"sun": {...}, "moon": {...}, ...},
+      "houses":  {"asc": {...}, "mc": {...}, "house_1": {...}, ..., "house_12": {...}},
+      "aspects": [{"point_a": "...", "point_b": "...", "aspect_deg": ..., "exact_orb": ..., "status": "..."}],
+      "arabic_parts": {"part_of_fortune": ..., "is_day_birth": ...},
+      "fixed_stars": {"Regulus": {...}, ...},
+      "fixed_star_conjunctions": [{"star": "...", "point": "...", "orb": ...}],
+      "meta": {"schema_version": 1, ...}
+    }
+
+Only ONE house system is computed per call (default from
+`ASTROMCP_HOUSE_SYSTEM`, override with `&house_system=K` etc.) - mixing
+several systems' cusps into one flat response would make it ambiguous
+which system a given cusp or aspect belongs to. Call the endpoint twice
+with different `house_system` values if a page genuinely needs both.
+
+City-name lookup (`&city=...`) and timezone auto-resolution (when neither
+`&tz=` nor `&tz_offset=` is given) are both **offline** - `geonamescache`
+for the former, `timezonefinder` for the latter - no live external
+geocoding call happens. Both come with real caveats spelled out in
+`engine/geocode.py`'s docstring: city-name matching is a population-based
+heuristic that can pick the wrong same-named town, and the auto-resolved
+timezone is the *modern* zone boundary only - **not safe for historical
+dates** without independently verifying the actual historical offset (see
+the Soviet decree-time example already documented in
+`help_texts/rectification.md`). For anything precise, pass `lat`/`lon` and
+`tz`/`tz_offset` explicitly.
+
+Fixed-star positions (`engine/fixed_stars.py`) are a new capability added
+for this endpoint - no rectification tool in this project used them
+before. First-pass implementation, not independently verified against a
+running install in the session that wrote it; sanity-check a few star
+positions against a known reference (e.g. Astrodienst) after deploying.
 
 ### How the LLM client learns the methodology
 

@@ -17,9 +17,13 @@ import warnings
 warnings.filterwarnings("ignore", message=".*Field 'lifespan' has an incomplete definition.*")
 
 from mcp.server.fastmcp import FastMCP
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from engine import config
 from engine import tools
+from engine import public_api
+from engine.geocode import GeocodeError
 
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL, logging.INFO))
 logger = logging.getLogger("astromcp")
@@ -93,7 +97,7 @@ def rectif_technique(
     natal_tz_offset_minutes: Optional[int] = None,
     house_system: str = config.DEFAULT_HOUSE_SYSTEM,
     zodiac_type: str = config.DEFAULT_ZODIAC_TYPE,
-    technique: str = "transit",  # secondary_progression | solar_arc | solar_return | profection | transit
+    technique: str = "transit",  # secondary_progression | solar_arc | solar_return | profection | primary_direction_zodiacal | relocated_transit | transit
     target_year: int = 2000, target_month: int = 1, target_day: int = 1,
     target_hour: int = 12, target_minute: int = 0, target_second: int = 0,
     angle_method: str = "solar_arc_naibod",  # for secondary_progression
@@ -103,13 +107,33 @@ def rectif_technique(
     aspect_set: Optional[List[float]] = None,
     orb_table: Optional[Dict[str, float]] = None,
     luminary_orb_bonus: Optional[float] = None,
+    relocate_lat: Optional[float] = None, relocate_lng: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     Computes a predictive technique (secondary progression, solar arc
-    direction, solar return, annual/monthly profection, or transit) for a
-    natal chart, and optionally the aspects it forms to the natal chart.
-    This is the core engine for rectification: run it once per candidate
-    event, per candidate birth time.
+    direction, solar return, annual/monthly profection, zodiacal primary
+    direction, relocated-chart transit, or transit) for a natal chart, and
+    optionally the aspects it forms to the natal chart. This is the core
+    engine for rectification: run it once per candidate event, per
+    candidate birth time.
+
+    technique="primary_direction_zodiacal": Jan Kefer's zodiacal primary
+    direction (Prakticka Astrologie, 1939) - the Ptolemaic key (1 year =
+    1 degree of arc) applied via right ascension to the Midheaven, then
+    compared to natal points as ordinary zodiacal (ecliptic) aspects.
+    Directs the MC/IC only - other points would need each their own
+    oblique-ascension-under-the-pole calculation, not implemented here
+    (see the function's docstring in engine/techniques.py). Uses the
+    tight ~1 degree "direction" orb by default, like solar_arc.
+
+    technique="relocated_transit": B. Hammerslaf's relocated-chart
+    technique - for an event far from the birth location, rebuilds the
+    natal chart's angles at (relocate_lat, relocate_lng) - same birth
+    instant, different place - and checks ordinary transiting planets for
+    the event date/time against THOSE relocated angles instead of the
+    birth-location ones. If relocate_lat/lng aren't given, defaults to
+    event_lat/lng (i.e. relocate to the event's own location, the most
+    common case per the source).
 
     technique="profection": Hellenistic annual/monthly profections. The
     natal Ascendant symbolically advances one whole sign per completed year
@@ -134,12 +158,13 @@ def rectif_technique(
     handful of chart builds per call instead of one) - for scanning many
     candidates with solar_return, prefer rectif_scan_start over rectif_scan.
 
-    Default orbs are technique-aware: transits, solar returns, and
-    profections use wide classical orbs, while progressions/directions use
-    tight ~1 degree orbs (since 1 degree of arc corresponds to roughly 1
-    year of life, a wide orb there directly translates into years of
-    dating error). Pass orb_table/luminary_orb_bonus explicitly to
-    override; defaults are also tunable via .env.
+    Default orbs are technique-aware: transits, solar returns, profections,
+    and relocated transits use wide classical orbs, while progressions/
+    directions (including primary_direction_zodiacal) use tight ~1 degree
+    orbs (since 1 degree of arc corresponds to roughly 1 year of life, a
+    wide orb there directly translates into years of dating error). Pass
+    orb_table/luminary_orb_bonus explicitly to override; defaults are also
+    tunable via .env.
     """
     return tools.rectif_technique(
         natal_year, natal_month, natal_day, natal_hour, natal_minute, natal_second,
@@ -148,6 +173,7 @@ def rectif_technique(
         target_year, target_month, target_day, target_hour, target_minute, target_second,
         angle_method, event_lat, event_lng, event_tz_str, event_tz_offset_minutes,
         compute_aspects_flag, aspect_set, orb_table, luminary_orb_bonus,
+        relocate_lat, relocate_lng,
     )
 
 
@@ -406,6 +432,274 @@ def rectif_movements_scan(
         target_houses, target_points, direction_orb_deg, transit_orb_deg,
         scan_start_second, scan_end_second, step_seconds,
     )
+
+
+@mcp.tool()
+def rectif_timoshenko_scan(
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_lat: float, natal_lng: float,
+    natal_tz_str: Optional[str] = None,
+    natal_tz_offset_minutes: Optional[int] = None,
+    house_system: str = config.DEFAULT_HOUSE_SYSTEM,
+    zodiac_type: str = config.DEFAULT_ZODIAC_TYPE,
+    scan_start_hour: int = 0, scan_start_minute: int = 0,
+    scan_end_hour: int = 23, scan_end_minute: int = 59,
+    step_minutes: int = 2,
+    target_year: int = 2000, target_month: int = 1, target_day: int = 1,
+    house_num: int = 1,
+    orb_deg: float = 1.0,
+    scan_start_second: int = 0, scan_end_second: int = 59,
+    step_seconds: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    I. Timoshenko's rectification method (VALIRAN astrological center,
+    2001), reproduced literally - NOT a score. For ONE house at ONE event
+    date, checks at every candidate birth time whether FOUR conditions
+    ALL hold simultaneously (an AND, not a threshold like Grishchenyuk's
+    2-of-3): the solar-arc-DIRECTED ruler of house_num sends a hard aspect
+    to a natal element of that house (ruler/co-ruler/occupants); the
+    DIRECTED cusp of house_num likewise sends one; the NATAL ruler
+    receives a hard aspect from some directed element of the house; the
+    NATAL cusp likewise receives one.
+
+    Returns qualifying_windows: contiguous [start, end] ranges where all
+    four conditions held at once, grouped from consecutive candidates -
+    NOT ranked or scored. Check candidates_qualifying_raw_count against
+    candidates_tested - if very few or very many candidates qualify,
+    adjust orb_deg. To combine evidence across several events, call this
+    once per event/house and intersect the qualifying windows by hand,
+    same as rectif_movements_scan - do not sum or average anything.
+
+    The source claims this test, combined with its own interval-
+    intersection search (narrowing across ~10 points, not fully
+    reproduced by this brute-force scan), reaches 10-30 second precision
+    on real charts. That precision claim has not been independently
+    re-verified here - only the four-condition test itself is faithfully
+    reproduced. house_system should probably be Koch ("K") for
+    consistency with the rest of this lineage's methodology, though the
+    source's own house-system requirement was not confirmed as explicitly
+    as Grishchenyuk's.
+    """
+    return tools.rectif_timoshenko_scan(
+        natal_year, natal_month, natal_day, natal_lat, natal_lng,
+        natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
+        scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
+        step_minutes, target_year, target_month, target_day, house_num, orb_deg,
+        scan_start_second, scan_end_second, step_seconds,
+    )
+
+
+@mcp.tool()
+def rectif_bonatti_scan(
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_lat: float, natal_lng: float,
+    natal_tz_str: Optional[str] = None,
+    natal_tz_offset_minutes: Optional[int] = None,
+    house_system: str = config.DEFAULT_HOUSE_SYSTEM,
+    zodiac_type: str = config.DEFAULT_ZODIAC_TYPE,
+    scan_start_hour: int = 0, scan_start_minute: int = 0,
+    scan_end_hour: int = 23, scan_end_minute: int = 59,
+    step_minutes: int = 2,
+    orb_deg: float = 1.0,
+    affliction_orb_deg: float = 8.0,
+    scan_start_second: int = 0, scan_end_second: int = 59,
+    step_seconds: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Guido Bonatti's method (via Jan Kefer, Prakticka Astrologie, 1939),
+    reproduced literally. NOT a primary technique - the source explicitly
+    says to use this only in combination with another correction, never
+    alone. No life events needed: for every candidate, checks the Sun's
+    condition (afflicted by hard aspect to Saturn/Uranus/Mars, within
+    affliction_orb_deg, or not) and the corresponding rule - if
+    unafflicted, some angle (ASC/DSC/MC/IC) is the midpoint of the Sun and
+    some planet; if afflicted, some angle is in conjunction with some
+    planet - within orb_deg.
+
+    Returns qualifying_windows (contiguous ranges where the rule holds) -
+    NOT ranked or scored. Given the source's own caution, treat this as a
+    weak auxiliary signal: intersect with a stronger technique's
+    qualifying windows rather than relying on it by itself.
+    """
+    return tools.rectif_bonatti_scan(
+        natal_year, natal_month, natal_day, natal_lat, natal_lng,
+        natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
+        scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
+        step_minutes, orb_deg, affliction_orb_deg,
+        scan_start_second, scan_end_second, step_seconds,
+    )
+
+
+@mcp.tool()
+def rectif_degree_clustering(
+    events: List[Dict[str, Any]],
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_lat: float, natal_lng: float,
+    natal_tz_str: Optional[str] = None,
+    natal_tz_offset_minutes: Optional[int] = None,
+    house_system: str = config.DEFAULT_HOUSE_SYSTEM,
+    zodiac_type: str = config.DEFAULT_ZODIAC_TYPE,
+    round_to_deg: float = 1.0,
+    exclude_natal_occupied_deg_tolerance: float = 2.0,
+    top_n: int = 10,
+    convert_top_peaks_to_times: bool = True,
+) -> Dict[str, Any]:
+    """
+    B. Israitel's "condensation method" / B. Brady's "graphic
+    rectification" (see BIBLIOGRAPHY.md) - a fundamentally different
+    approach from every other tool in this service: it does NOT scan
+    candidate birth times at all. Instead, it collects the positions of
+    slower transiting planets (Mars through Pluto, plus the nodes - fast
+    personal planets are deliberately excluded as too imprecise for this)
+    across MANY life events, and finds which zodiacal degrees recur most
+    often. A recurring degree with no natal planet already there is a
+    hypothesis for where an ANGULAR house cusp sits.
+
+    events: list of {year, month, day, hour?, minute?, second?, lat?,
+    lng?, tz_str?, tz_offset_minutes?} - one per life event, no birth
+    time needed for any of them (only the event's own date/time). Both
+    sources want a large number: Brady specifically recommends ~15
+    ANGULAR events (relationship/birth/death of close people - NOT
+    arbitrary events) for 80-100 data points; Israitel similarly wants a
+    large volume. Both sources also say this method is only reliable once
+    birth-time uncertainty is already under 20-30 minutes - it's a
+    refinement tool, not a wide-open search technique like rectif_scan
+    or rectif_movements_scan.
+
+    Returns peaks_excluding_natal_planet_degrees: degrees sorted by raw
+    recurrence count (the method's own frequency tally - not an invented
+    score), each with candidate birth times (as_ascendant_time and
+    as_medium_coeli_time) that would place that degree on the Ascendant
+    or Midheaven respectively, via convert_top_peaks_to_times - since a
+    peak degree alone doesn't say which angle it represents.
+    """
+    return tools.rectif_degree_clustering(
+        events, natal_year, natal_month, natal_day, natal_lat, natal_lng,
+        natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
+        round_to_deg, exclude_natal_occupied_deg_tolerance, top_n, convert_top_peaks_to_times,
+    )
+
+
+@mcp.tool()
+def rectif_herich_scan(
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_lat: float, natal_lng: float,
+    natal_tz_str: Optional[str] = None,
+    natal_tz_offset_minutes: Optional[int] = None,
+    house_system: str = config.DEFAULT_HOUSE_SYSTEM,
+    zodiac_type: str = config.DEFAULT_ZODIAC_TYPE,
+    scan_start_hour: int = 0, scan_start_minute: int = 0,
+    scan_end_hour: int = 23, scan_end_minute: int = 59,
+    step_minutes: int = 2,
+    orb_deg: float = 8.0,
+    check_all_house_cusps: bool = False,
+    scan_start_second: int = 0, scan_end_second: int = 59,
+    step_seconds: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Herich's number (Paul von Gerich, 1929/1930 article - see
+    BIBLIOGRAPHY.md), reproduced literally. NOT a primary technique - a
+    weak auxiliary check the source's own author acknowledges can be off
+    by up to 8 degrees. No life events needed: taking pairwise midpoints
+    of Sun, Moon, and Saturn in a chained formula (a = midpoint of
+    midpoint(Moon,Sun) and midpoint(Saturn,Sun); b = midpoint of a and
+    midpoint(Moon,Saturn)), checks whether b falls within orb_deg of the
+    Ascendant or Midheaven (the source's primary claim; pass
+    check_all_house_cusps=True for its weaker secondary claim that b may
+    coincide with any house cusp).
+
+    Returns qualifying_windows (contiguous ranges where the rule holds) -
+    NOT ranked or scored. Given the source's own stated uncertainty,
+    treat this as a weak auxiliary signal: intersect with a stronger
+    technique's qualifying windows rather than relying on it alone.
+    """
+    return tools.rectif_herich_scan(
+        natal_year, natal_month, natal_day, natal_lat, natal_lng,
+        natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
+        scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
+        step_minutes, orb_deg, check_all_house_cusps,
+        scan_start_second, scan_end_second, step_seconds,
+    )
+
+
+@mcp.custom_route("/astro", methods=["GET"])
+async def astro_report(request: Request) -> JSONResponse:
+    """
+    Plain HTTP GET endpoint, separate from the MCP tool protocol above -
+    meant for MediaWiki's External Data extension or any other non-MCP
+    JSON caller. Lives on the same host/port as the MCP endpoint (no new
+    infra, no nginx changes) via Starlette's custom_route mechanism.
+
+    GET /astro?date=23.11.1993&time=14:30&lat=50.45&lon=30.52
+    GET /astro?date=23.11.1993&time=14:30&city=Kyiv
+
+    Query params:
+      date            required, DD.MM.YYYY
+      time            optional, HH:MM or HH:MM:SS (default 12:00)
+      lat, lon        decimal degrees (lng also accepted as an alias for lon)
+      city             city name, resolved via the offline geonamescache
+                       dataset if lat/lon are not given (see engine/geocode.py)
+      country_code     optional ISO 3166-1 alpha-2, disambiguates a common
+                       city name (e.g. country_code=UA)
+      tz               IANA zone name (e.g. Europe/Kyiv)
+      tz_offset        whole-hour UTC offset in minutes (e.g. 180 for UTC+3);
+                       overrides tz if both given
+                       If neither tz nor tz_offset is given, falls back to
+                       timezonefinder's MODERN zone lookup - see
+                       engine/public_api.py's docstring on why this is not
+                       safe for historical dates.
+      house_system     single-letter kerykeion code, default from
+                       ASTROMCP_HOUSE_SYSTEM (P=Placidus, K=Koch, W=Whole
+                       Sign, ...). One system per call - see
+                       engine/public_api.py for why several at once isn't
+                       offered here.
+      no_aspects=1              omit the "aspects" section
+      no_house_cusp_aspects=1   compute aspects for planets/angles only,
+                                excluding the 12 house cusps as targets
+      no_stars=1                omit "fixed_stars"/"fixed_star_conjunctions"
+      no_parts=1                omit "arabic_parts"
+    """
+    q = request.query_params
+    try:
+        date_str = q.get("date")
+        if not date_str:
+            return JSONResponse({"error": "missing required 'date' param (DD.MM.YYYY)"}, status_code=400)
+        day, month, year = (int(x) for x in date_str.split("."))
+
+        time_str = q.get("time", "12:00")
+        time_parts = time_str.split(":")
+        hour, minute = int(time_parts[0]), int(time_parts[1])
+        second = int(time_parts[2]) if len(time_parts) > 2 else 0
+
+        lat = float(q["lat"]) if "lat" in q else None
+        lng = float(q["lon"]) if "lon" in q else (float(q["lng"]) if "lng" in q else None)
+        city = q.get("city")
+        country_code = q.get("country_code")
+
+        tz_str = q.get("tz")
+        tz_offset = int(q["tz_offset"]) if "tz_offset" in q else None
+
+        house_system = q.get("house_system")
+
+        result = public_api.build_full_report(
+            year, month, day, hour, minute, second,
+            lat=lat, lng=lng, city=city, country_code=country_code,
+            tz_str=tz_str, tz_offset_minutes=tz_offset,
+            house_system=house_system,
+            include_aspects=(q.get("no_aspects") != "1"),
+            include_house_cusp_aspects=(q.get("no_house_cusp_aspects") != "1"),
+            include_fixed_stars=(q.get("no_stars") != "1"),
+            include_arabic_parts=(q.get("no_parts") != "1"),
+        )
+        return JSONResponse(result)
+
+    except GeocodeError as e:
+        return JSONResponse({"error": str(e)}, status_code=404)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:
+        logger.exception("astro_report failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @mcp.tool()

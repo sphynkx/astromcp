@@ -14,10 +14,12 @@ from .aspects import compute_aspects
 from .techniques import (
     technique_transit, technique_secondary_progression, technique_solar_arc,
     technique_solar_return, technique_profection,
+    technique_primary_direction_zodiacal, technique_relocated_transit,
 )
 from .scan import run_scan
 from .trutina import run_trutina_hermetis
-from .criteria import run_three_movements_scan
+from .criteria import run_three_movements_scan, run_timoshenko_scan, run_bonatti_scan, run_herich_scan
+from .clustering import collect_transiting_degrees, build_degree_histogram, find_time_for_angle
 from .help import get_help
 from .constants import DEFAULT_POINTS, LUMINARY_NAMES
 from .display import print_chart_result, print_technique_result, print_scan_result
@@ -91,6 +93,7 @@ def rectif_technique(
     aspect_set: Optional[List[float]] = None,
     orb_table: Optional[Dict[str, float]] = None,
     luminary_orb_bonus: Optional[float] = None,
+    relocate_lat: Optional[float] = None, relocate_lng: Optional[float] = None,
 ) -> Dict[str, Any]:
     house_system = house_system or config.DEFAULT_HOUSE_SYSTEM
     zodiac_type = zodiac_type or config.DEFAULT_ZODIAC_TYPE
@@ -144,6 +147,27 @@ def rectif_technique(
                 event_lng if event_lng is not None else natal_lng,
                 ev_tz_str, ev_tz_off,
             )
+        elif technique == "primary_direction_zodiacal":
+            computed, natal_pts, meta = technique_primary_direction_zodiacal(
+                natal_year, natal_month, natal_day,
+                n_raw, n_points, target_year, target_month, target_day,
+            )
+        elif technique == "relocated_transit":
+            fixed_offset = resolve_fixed_offset_minutes(
+                natal_tz_str, natal_tz_offset_minutes,
+                natal_year, natal_month, natal_day, natal_hour, natal_minute, natal_second,
+            )
+            computed, natal_pts, meta = technique_relocated_transit(
+                natal_year, natal_month, natal_day, natal_hour, natal_minute, natal_second,
+                fixed_offset,
+                relocate_lat if relocate_lat is not None else (event_lat if event_lat is not None else natal_lat),
+                relocate_lng if relocate_lng is not None else (event_lng if event_lng is not None else natal_lng),
+                house_system, zodiac_type,
+                target_year, target_month, target_day, target_hour, target_minute, target_second,
+                event_lat if event_lat is not None else natal_lat,
+                event_lng if event_lng is not None else natal_lng,
+                event_tz_str, event_tz_offset_minutes,
+            )
         elif technique == "transit":
             ev_tz_str = event_tz_str
             ev_tz_off = event_tz_offset_minutes
@@ -171,14 +195,14 @@ def rectif_technique(
 
             if orb_table:
                 orb_tbl = {float(k): v for k, v in orb_table.items()}
-            elif technique in ("transit", "solar_return", "profection"):
+            elif technique in ("transit", "solar_return", "profection", "relocated_transit"):
                 orb_tbl = config.DEFAULT_ORB_TABLE_TRANSIT
             else:
                 orb_tbl = config.DEFAULT_ORB_TABLE_DIRECTION
 
             if luminary_orb_bonus is not None:
                 bonus = luminary_orb_bonus
-            elif technique in ("transit", "solar_return", "profection"):
+            elif technique in ("transit", "solar_return", "profection", "relocated_transit"):
                 bonus = config.LUMINARY_ORB_BONUS_TRANSIT
             else:
                 bonus = config.LUMINARY_ORB_BONUS_DIRECTION
@@ -379,6 +403,168 @@ def rectif_movements_scan(
         return result
     except Exception as e:
         logger.exception("rectif_movements_scan failed")
+        return {"error": str(e)}
+
+
+def rectif_timoshenko_scan(
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_lat: float, natal_lng: float,
+    natal_tz_str: Optional[str] = None,
+    natal_tz_offset_minutes: Optional[int] = None,
+    house_system: Optional[str] = None,
+    zodiac_type: Optional[str] = None,
+    scan_start_hour: int = 0, scan_start_minute: int = 0,
+    scan_end_hour: int = 23, scan_end_minute: int = 59,
+    step_minutes: int = 2,
+    target_year: int = 2000, target_month: int = 1, target_day: int = 1,
+    house_num: int = 1,
+    orb_deg: float = 1.0,
+    scan_start_second: int = 0, scan_end_second: int = 59,
+    step_seconds: Optional[int] = None,
+) -> Dict[str, Any]:
+    house_system = house_system or config.DEFAULT_HOUSE_SYSTEM
+    zodiac_type = zodiac_type or config.DEFAULT_ZODIAC_TYPE
+    try:
+        result = run_timoshenko_scan(
+            natal_year, natal_month, natal_day, natal_lat, natal_lng,
+            natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
+            scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
+            step_minutes, target_year, target_month, target_day, house_num, orb_deg,
+            scan_start_second, scan_end_second, step_seconds,
+        )
+        if config.CONSOLE_RESULT_PREVIEW:
+            logger.info(
+                "  timoshenko: %d/%d candidates qualify (all 4 conditions), %d windows",
+                result["candidates_qualifying_raw_count"], result["candidates_tested"],
+                len(result["qualifying_windows"]),
+            )
+        return result
+    except Exception as e:
+        logger.exception("rectif_timoshenko_scan failed")
+        return {"error": str(e)}
+
+
+def rectif_bonatti_scan(
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_lat: float, natal_lng: float,
+    natal_tz_str: Optional[str] = None,
+    natal_tz_offset_minutes: Optional[int] = None,
+    house_system: Optional[str] = None,
+    zodiac_type: Optional[str] = None,
+    scan_start_hour: int = 0, scan_start_minute: int = 0,
+    scan_end_hour: int = 23, scan_end_minute: int = 59,
+    step_minutes: int = 2,
+    orb_deg: float = 1.0,
+    affliction_orb_deg: float = 8.0,
+    scan_start_second: int = 0, scan_end_second: int = 59,
+    step_seconds: Optional[int] = None,
+) -> Dict[str, Any]:
+    house_system = house_system or config.DEFAULT_HOUSE_SYSTEM
+    zodiac_type = zodiac_type or config.DEFAULT_ZODIAC_TYPE
+    try:
+        result = run_bonatti_scan(
+            natal_year, natal_month, natal_day, natal_lat, natal_lng,
+            natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
+            scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
+            step_minutes, orb_deg, affliction_orb_deg,
+            scan_start_second, scan_end_second, step_seconds,
+        )
+        if config.CONSOLE_RESULT_PREVIEW:
+            logger.info(
+                "  bonatti: %d/%d candidates qualify, %d windows",
+                result["candidates_qualifying_raw_count"], result["candidates_tested"],
+                len(result["qualifying_windows"]),
+            )
+        return result
+    except Exception as e:
+        logger.exception("rectif_bonatti_scan failed")
+        return {"error": str(e)}
+
+
+def rectif_degree_clustering(
+    events: List[Dict[str, Any]],
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_lat: float, natal_lng: float,
+    natal_tz_str: Optional[str] = None,
+    natal_tz_offset_minutes: Optional[int] = None,
+    house_system: Optional[str] = None,
+    zodiac_type: Optional[str] = None,
+    round_to_deg: float = 1.0,
+    exclude_natal_occupied_deg_tolerance: float = 2.0,
+    top_n: int = 10,
+    convert_top_peaks_to_times: bool = True,
+) -> Dict[str, Any]:
+    house_system = house_system or config.DEFAULT_HOUSE_SYSTEM
+    zodiac_type = zodiac_type or config.DEFAULT_ZODIAC_TYPE
+    try:
+        records = collect_transiting_degrees(events, round_to_deg)
+        histogram = build_degree_histogram(
+            records, natal_year, natal_month, natal_day, natal_lat, natal_lng,
+            round_to_deg, exclude_natal_occupied_deg_tolerance,
+        )
+        top_peaks = histogram["peaks_excluding_natal_planet_degrees"][:top_n]
+
+        if convert_top_peaks_to_times and top_peaks:
+            fixed_offset = resolve_fixed_offset_minutes(
+                natal_tz_str, natal_tz_offset_minutes,
+                natal_year, natal_month, natal_day, 12, 0, 0,
+            )
+            for peak in top_peaks:
+                peak["as_ascendant_time"] = find_time_for_angle(
+                    peak["degree"], natal_year, natal_month, natal_day,
+                    natal_lat, natal_lng, fixed_offset, house_system, zodiac_type, "ascendant",
+                )["candidate_time"]
+                peak["as_medium_coeli_time"] = find_time_for_angle(
+                    peak["degree"], natal_year, natal_month, natal_day,
+                    natal_lat, natal_lng, fixed_offset, house_system, zodiac_type, "medium_coeli",
+                )["candidate_time"]
+
+        histogram["peaks_excluding_natal_planet_degrees"] = top_peaks
+        if config.CONSOLE_RESULT_PREVIEW:
+            logger.info(
+                "  degree_clustering: %d events, %d peaks (top %d shown)",
+                histogram["total_events"], len(records), len(top_peaks),
+            )
+        return histogram
+    except Exception as e:
+        logger.exception("rectif_degree_clustering failed")
+        return {"error": str(e)}
+
+
+def rectif_herich_scan(
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_lat: float, natal_lng: float,
+    natal_tz_str: Optional[str] = None,
+    natal_tz_offset_minutes: Optional[int] = None,
+    house_system: Optional[str] = None,
+    zodiac_type: Optional[str] = None,
+    scan_start_hour: int = 0, scan_start_minute: int = 0,
+    scan_end_hour: int = 23, scan_end_minute: int = 59,
+    step_minutes: int = 2,
+    orb_deg: float = 8.0,
+    check_all_house_cusps: bool = False,
+    scan_start_second: int = 0, scan_end_second: int = 59,
+    step_seconds: Optional[int] = None,
+) -> Dict[str, Any]:
+    house_system = house_system or config.DEFAULT_HOUSE_SYSTEM
+    zodiac_type = zodiac_type or config.DEFAULT_ZODIAC_TYPE
+    try:
+        result = run_herich_scan(
+            natal_year, natal_month, natal_day, natal_lat, natal_lng,
+            natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
+            scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
+            step_minutes, orb_deg, check_all_house_cusps,
+            scan_start_second, scan_end_second, step_seconds,
+        )
+        if config.CONSOLE_RESULT_PREVIEW:
+            logger.info(
+                "  herich: %d/%d candidates qualify, %d windows",
+                result["candidates_qualifying_raw_count"], result["candidates_tested"],
+                len(result["qualifying_windows"]),
+            )
+        return result
+    except Exception as e:
+        logger.exception("rectif_herich_scan failed")
         return {"error": str(e)}
 
 

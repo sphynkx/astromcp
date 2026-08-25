@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 import math
 
 from .chart import build_subject, recompute_sign_fields
-from .constants import DEFAULT_POINTS, ANGLE_KEYS, TRADITIONAL_RULERS, SIGN_ORDER
+from .constants import DEFAULT_POINTS, ANGLE_KEYS, HOUSE_KEYS, TRADITIONAL_RULERS, SIGN_ORDER
 
 
 def technique_transit(
@@ -64,14 +64,14 @@ def technique_secondary_progression(
     computed = {p: prog_raw[p] for p in DEFAULT_POINTS if p in prog_raw}
 
     if angle_method == "direct_progressed_angles":
-        for a in ANGLE_KEYS:
+        for a in ANGLE_KEYS + HOUSE_KEYS:
             if a in prog_raw:
                 computed[a] = prog_raw[a]
     elif angle_method == "solar_arc_naibod":
         natal_sun = natal_raw["sun"]["abs_pos"]
         prog_sun = prog_raw["sun"]["abs_pos"]
         arc = (prog_sun - natal_sun) % 360
-        for a in ANGLE_KEYS:
+        for a in ANGLE_KEYS + HOUSE_KEYS:
             if a in natal_raw:
                 base = dict(natal_raw[a])
                 base = recompute_sign_fields(base, base["abs_pos"] + arc)
@@ -112,7 +112,7 @@ def technique_solar_arc(
     arc = (prog_sun_pos - natal_sun_pos) % 360
 
     computed = {}
-    for key in DEFAULT_POINTS + ANGLE_KEYS:
+    for key in DEFAULT_POINTS + ANGLE_KEYS + HOUSE_KEYS:
         if key in natal_raw:
             base = dict(natal_raw[key])
             base = recompute_sign_fields(base, base["abs_pos"] + arc)
@@ -147,6 +147,12 @@ def technique_symbolic_direction(
       every 12 years.
     Neither is tied to where the real Sun actually is on the target date -
     that distinction is what separates this from technique_solar_arc.
+
+    Also usable at rate_deg_per_year=365.2425/365.2425*1 ... i.e. any rate;
+    two further documented speeds from B. Israitel's classification map
+    onto this same mechanism: rate=1/365.2425*360 (~0.9856, "degree for a
+    day", ~1-year cycle) and rate=1/30*360=12.0 ("degree for a month",
+    ~30-year Saturn-linked cycle). Pass the rate explicitly for either.
     """
     natal_civil_date = date(natal_year, natal_month, natal_day)
     target_civil_date = date(target_year, target_month, target_day)
@@ -154,7 +160,7 @@ def technique_symbolic_direction(
     arc = (elapsed_years * rate_deg_per_year) % 360
 
     computed = {}
-    for key in DEFAULT_POINTS + ANGLE_KEYS:
+    for key in DEFAULT_POINTS + ANGLE_KEYS + HOUSE_KEYS:
         if key in natal_raw:
             base = dict(natal_raw[key])
             base = recompute_sign_fields(base, base["abs_pos"] + arc)
@@ -322,6 +328,138 @@ def technique_profection(
         "monthly_profected_sign": SIGN_ORDER[monthly_sign_num],
         "lord_of_month": monthly_lord,
         "profected_ascendant_abs_pos": round(profected_asc_abs_pos, 4),
+        "event_tz_used": ev_resolved_tz,
+        "event_tz_source": ev_tz_source,
+    }
+
+
+def _mean_obliquity_deg(year: int) -> float:
+    """
+    Mean obliquity of the ecliptic for the given year, linear
+    approximation (IAU 1980-style, accurate to ~1 arcsecond over a few
+    centuries around J2000 - more than sufficient for the zodiacal
+    primary direction use case below).
+    """
+    centuries_from_j2000 = (year - 2000) / 100.0
+    return 23.4392911 - 0.0130042 * centuries_from_j2000
+
+
+def technique_primary_direction_zodiacal(
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_raw: Dict[str, Any],
+    natal_points: Dict[str, Dict[str, Any]],
+    target_year: int, target_month: int, target_day: int,
+):
+    """
+    Jan Kefer's "zodiacal primary direction" (Prakticka Astrologie, 1939,
+    section on primary directions - see BIBLIOGRAPHY.md): the classical
+    Ptolemaic key (1 year of age = 1 degree of arc; 1 month = 5
+    arcminutes; 6 days = 1 arcminute - all the same rate, just expressed
+    at different granularities for manual calculation) applied via RIGHT
+    ASCENSION rather than ecliptic longitude directly, to the Midheaven.
+
+    Scope note: this directs the MC ONLY. Kefer's fuller primary-direction
+    method also directs other points (notably the Ascendant) via each
+    point's own oblique ascension under the local pole - genuine
+    spherical-trigonometry machinery (semi-arcs proportional to
+    geographic latitude and the point's declination) that is NOT
+    implemented here. Directing the MC alone is well-defined or a single,
+    unambiguous formula (the MC's ecliptic longitude and its right
+    ascension are related purely by the ecliptic's obliquity, with no
+    dependency on geographic latitude), which is why it's implemented on
+    its own rather than approximated for other points with a formula that
+    would not be Kefer's real method. The resulting directed MC's
+    ECLIPTIC longitude is then compared to natal points with ordinary
+    zodiacal aspects, same as any other direction technique in this
+    engine - that "zodiacal" comparison step is what gives the technique
+    its name, as opposed to a fully "mundane" primary direction.
+    """
+    natal_civil_date = date(natal_year, natal_month, natal_day)
+    target_civil_date = date(target_year, target_month, target_day)
+    elapsed_years = (target_civil_date - natal_civil_date).days / 365.2425
+
+    obliquity_deg = _mean_obliquity_deg(natal_year)
+    eps = math.radians(obliquity_deg)
+
+    natal_mc_lambda = math.radians(natal_raw["medium_coeli"]["abs_pos"])
+    natal_ramc = math.degrees(math.atan2(
+        math.cos(eps) * math.sin(natal_mc_lambda), math.cos(natal_mc_lambda)
+    )) % 360
+
+    directed_ramc = (natal_ramc + elapsed_years * 1.0) % 360
+    alpha = math.radians(directed_ramc)
+    directed_mc_lambda = math.degrees(math.atan2(
+        math.sin(alpha), math.cos(alpha) * math.cos(eps)
+    )) % 360
+
+    computed = {}
+    mc_base = dict(natal_raw["medium_coeli"])
+    mc_base = recompute_sign_fields(mc_base, directed_mc_lambda)
+    mc_base["speed"] = 1.0
+    computed["medium_coeli"] = mc_base
+
+    ic_base = dict(natal_raw["imum_coeli"])
+    ic_base = recompute_sign_fields(ic_base, (directed_mc_lambda + 180) % 360)
+    ic_base["speed"] = 1.0
+    computed["imum_coeli"] = ic_base
+
+    return computed, natal_points, {
+        "elapsed_years": round(elapsed_years, 4),
+        "obliquity_deg": round(obliquity_deg, 6),
+        "natal_ramc_deg": round(natal_ramc, 4),
+        "directed_ramc_deg": round(directed_ramc, 4),
+        "directed_mc_ecliptic_lon_deg": round(directed_mc_lambda, 4),
+        "scope": "MC/IC only - see docstring for why other points are not directed here",
+    }
+
+
+def technique_relocated_transit(
+    natal_year, natal_month, natal_day, natal_hour, natal_minute, natal_second,
+    fixed_offset,
+    relocate_lat: float, relocate_lng: float,
+    house_system, zodiac_type,
+    target_year, target_month, target_day, target_hour, target_minute, target_second,
+    event_lat, event_lng, event_tz_str, event_tz_offset_minutes,
+):
+    """
+    B. Hammerslaf's relocated-chart technique (see BIBLIOGRAPHY.md): for an
+    event happening far from the birth location, the person may respond to
+    transits hitting the ANGLES OF THE CHART RELOCATED TO WHERE THEY WERE
+    ACTUALLY LIVING/PRESENT at the time, rather than (or in addition to)
+    the birth-location angles. This rebuilds the natal chart at the same
+    birth instant but a different (relocate_lat, relocate_lng) - which
+    shifts the houses/angles but leaves the planets' zodiacal positions
+    unchanged - then returns ordinary transiting planets for the event
+    date, to be compared against these RELOCATED angles instead of the
+    birth-location natal_points.
+
+    fixed_offset is the birth location's own fixed UTC offset (from
+    resolve_fixed_offset_minutes on the real birth data) - relocation
+    keeps the same universal instant, so the same offset value is reused
+    here rather than looking up the new location's own historical
+    timezone (which would shift the instant, not just the angles).
+    """
+    relocated_natal_subject, _, _ = build_subject(
+        "relocated_natal", natal_year, natal_month, natal_day,
+        natal_hour, natal_minute, natal_second,
+        relocate_lat, relocate_lng, None, fixed_offset, house_system, zodiac_type,
+    )
+    relocated_raw = relocated_natal_subject.model_dump(mode="json")
+    relocated_points = {}
+    for key in ANGLE_KEYS + HOUSE_KEYS:
+        if key in relocated_raw:
+            relocated_points[key] = relocated_raw[key]
+
+    transit_subject, ev_resolved_tz, ev_tz_source = build_subject(
+        "transit", target_year, target_month, target_day,
+        target_hour, target_minute, target_second,
+        event_lat, event_lng, event_tz_str, event_tz_offset_minutes, house_system, zodiac_type,
+    )
+    transit_raw = transit_subject.model_dump(mode="json")
+    computed = {p: transit_raw[p] for p in DEFAULT_POINTS if p in transit_raw}
+
+    return computed, relocated_points, {
+        "relocated_to": {"lat": relocate_lat, "lng": relocate_lng},
         "event_tz_used": ev_resolved_tz,
         "event_tz_source": ev_tz_source,
     }

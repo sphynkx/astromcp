@@ -75,14 +75,47 @@ cases), not one condition with two states as some later secondary
 sources present it. Also documents, more briefly: Bonatti's method (an
 angle = midpoint of Sun and a planet, or conjunct a planet, depending on
 whether the Sun is afflicted), Glahn's "harmony law" (one main axis
-passes between Sun and Moon), "Herich's number" (a formula from Sun +
-Moon + Saturn longitudes; the source itself acknowledges an ~8 degree
-margin of error), the progressive-meridian method (sidereal-time based;
-1 day = 1 year, 2 hours = 1 month, 4 minutes = 1 day), and true primary
-directions via the Ptolemaic key (1 year = 1 degree of arc; 1 month = 5
-arcminutes; 6 days = 1 arcminute; computed via right ascension, requiring
-conversion from ecliptic longitude) - which Kefer himself calls the most
-precise of the methods he surveys.
+passes between Sun and Moon - the extracted copy of this text has a gap
+right at the operative instruction for selecting which axis; not
+recoverable from what was available for this project), "Herich's number"
+(a formula from Sun + Moon + Saturn longitudes; the source itself
+acknowledges an ~8 degree margin of error - the extracted copy of this
+text also has a gap exactly where the formula belongs, see von Gerich's
+own article below for how it was actually recovered), the progressive-
+meridian method (sidereal-time based; 1 day = 1 year, 2 hours = 1 month,
+4 minutes = 1 day - confirmed mechanically identical to this service's
+existing secondary-progression technique applied to the MC, so not
+separately implemented), and true primary directions via the Ptolemaic
+key (1 year = 1 degree of arc; 1 month = 5 arcminutes; 6 days = 1
+arcminute; computed via right ascension, requiring conversion from
+ecliptic longitude) - which Kefer himself calls the most precise of the
+methods he surveys, and which this service implements as
+`technique_primary_direction_zodiacal` (MC/IC only - see the note there).
+
+**von Gerich, Paul.** Article on "Herich's number" (this project's
+transliteration follows Kefer's Russian edition; the original German-
+language sources spell it "Gerich"), first published 1929, reprinted in
+A.Frank Glahn's *Erklarung und systematische Deutung des
+Geburtshoroskopes* (1930), pp.94-97, "Die Gerich'schen Harmoniegesetze".
+Full formula and a worked numeric example (Kurt Eisner's chart) recovered
+from a primary-source excerpt at misyats.wordpress.com/2009/12/11/gerich,
+cross-checked against an independent glossary entry at
+astrokot.kiev.ua/slovar/g/geriha.htm (same formula, same 8-degree orb).
+This project's implementation (`rectif_herich_scan`) was verified against
+Gerich's own worked example before being shipped - see BIBLIOGRAPHY.md's
+sibling document TECHNIQUE_STATUS.md for the specific check performed.
+
+**AstroZeus encyclopedia** (astro-zeus.ru/encyclopedia) - a large,
+useful index of named rectification methods, consulted for cross-
+reference and to locate additional named techniques not yet covered
+elsewhere in this bibliography. Located one technique not found in any
+other surveyed source: a claimed correspondence between house system and
+a specific planet coinciding with the Ascendant/MC in the 360th harmonic
+chart (Placidus-Moon, Koch-Mars, Regiomontanus-Jupiter, topocentric-
+Saturn). Not implemented - every source found repeats the same short
+glossary-entry-level description with no worked example and no stated
+comparison orb; see TECHNIQUE_STATUS.md for what would be needed to
+implement this responsibly.
 
 **Kudyanov, S.**; discussing articles by **Kolesnikov, A.** and
 **Tkachenko, V.** — Two real family cases (mother/daughter, mother/son,
