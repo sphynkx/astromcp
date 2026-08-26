@@ -635,8 +635,18 @@ ASTRO_HELP_DOC = {
         "date": "required. DD.MM.YYYY",
         "time": "optional. HH:MM or HH:MM:SS, default 12:00",
         "lat, lon": "decimal degrees ('lng' also accepted as an alias for 'lon')",
-        "city": "city name, resolved offline via geonamescache if lat/lon are not given",
-        "country_code": "optional ISO 3166-1 alpha-2 to disambiguate a common city name, e.g. UA",
+        "city": (
+            "city name. English, or Russian (both a curated exonym table "
+            "for cases like Москва/Moscow, and Cyrillic spellings "
+            "geonamescache already carries as alternate names, plus a "
+            "transliteration fallback) - resolved offline, only used if "
+            "lat/lon are not given"
+        ),
+        "country_code": (
+            "optional, disambiguates a common city name. ISO 3166-1 "
+            "alpha-2 (e.g. UA), OR a country name in English or Russian "
+            "(e.g. Ukraine / Украина)"
+        ),
         "tz": "IANA timezone name, e.g. Europe/Kyiv",
         "tz_offset": (
             "whole-hour UTC offset in minutes, e.g. 180 for UTC+3; overrides "

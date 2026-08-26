@@ -9,3 +9,5 @@ pyswisseph>=2.10.3.2   # kerykeion already depends on this transitively; pinned
                        # explicitly since fixed_stars.py imports it directly
 geonamescache>=2.0.0   # offline city-name -> coordinates lookup
 timezonefinder>=6.5.0  # offline coordinates -> modern IANA timezone lookup
+Babel>=2.14.0          # offline CLDR country-name lookup (engine/geocode.py's
+                       # Russian country-name support - resolve_country_code)

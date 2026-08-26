@@ -134,14 +134,25 @@ parse and surface to an editor who fat-fingered a query.
 City-name lookup (`&city=...`) and timezone auto-resolution (when neither
 `&tz=` nor `&tz_offset=` is given) are both **offline** - `geonamescache`
 for the former, `timezonefinder` for the latter - no live external
-geocoding call happens. Both come with real caveats spelled out in
+geocoding call happens. `&city=` accepts English or Russian input: a
+curated exonym table (`RU_CITY_EXONYMS` in `engine/geocode.py`) covers
+cases like Москва/Moscow where the Russian name is a genuinely different
+word, geonamescache's own bundled alternate-name data covers a fair
+number of Cyrillic spellings for free, and a transliteration fallback
+catches the rest where transliterating happens to land close to a known
+spelling. `&country_code=` (used to disambiguate a common city name)
+likewise accepts ISO2, or a country name in English or Russian, resolved
+via Babel's CLDR data - no hand-maintained table needed for countries,
+unlike cities. Both come with real caveats spelled out in
 `engine/geocode.py`'s docstring: city-name matching is a population-based
-heuristic that can pick the wrong same-named town, and the auto-resolved
-timezone is the *modern* zone boundary only - **not safe for historical
-dates** without independently verifying the actual historical offset (see
-the Soviet decree-time example already documented in
-`help_texts/rectification.md`). For anything precise, pass `lat`/`lon` and
-`tz`/`tz_offset` explicitly.
+heuristic that can pick the wrong same-named town, the Russian-language
+support hasn't been independently verified against the live dataset (test
+it against your running server and grow `RU_CITY_EXONYMS` from what
+actually fails), and the auto-resolved timezone is the *modern* zone
+boundary only - **not safe for historical dates** without independently
+verifying the actual historical offset (see the Soviet decree-time
+example already documented in `help_texts/rectification.md`). For
+anything precise, pass `lat`/`lon` and `tz`/`tz_offset` explicitly.
 
 Fixed-star positions (`engine/fixed_stars.py`) are a new capability added
 for this endpoint - no rectification tool in this project used them

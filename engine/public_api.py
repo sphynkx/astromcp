@@ -94,6 +94,9 @@ def _resolve_location(
     if lat is not None and lng is not None:
         return lat, lng, "explicit_coordinates", None
     if city:
+        # country_code may be an ISO2 code, or an English/Russian country
+        # name - geocode.lookup_city resolves it via resolve_country_code
+        # internally, so pass it through as given.
         c_lat, c_lng, resolved_name = geocode.lookup_city(city, country_code)
         return c_lat, c_lng, "geonamescache", resolved_name
     raise ValueError("Provide either lat+lng, or a city name")
