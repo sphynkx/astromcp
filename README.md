@@ -40,7 +40,11 @@ an MCP connector (streamable-http transport), not fetched as a plain URL.
     ├── install/
     │   ├── requirements.txt
     │   ├── astromcp.service    # systemd unit
-    │   └── .env.example        # documents all tunable settings
+    │   ├── .env.example        # documents all tunable settings
+    │   └── Module_Astrodata.lua  # MediaWiki Lua module - see "Integration
+    │                              # with MediaWiki" below. Kept in Russian
+    │                              # (the one exception to this project's
+    │                              # English-comments convention)
     └── engine/
         ├── __init__.py
         ├── config.py           # .env-driven settings, with built-in defaults
@@ -63,7 +67,9 @@ an MCP connector (streamable-http transport), not fetched as a plain URL.
         │                       # (timezonefinder) lookups - used only by public_api.py
         ├── fixed_stars.py      # fixed-star positions via pyswisseph, used only by
         │                       # public_api.py - not used by any rectification tool
-        └── public_api.py       # builds the flat JSON for the /astro REST endpoint
+        ├── public_api.py       # builds the flat JSON for the /astro REST endpoint
+        └── svg_chart.py        # builds the SVG for /astro/chart.svg - see that
+                                 # endpoint's README section for design notes
 
 `app.py` deliberately contains no astrological logic - it only registers
 MCP tools and delegates to `engine/tools.py`. This keeps the transport layer
@@ -159,6 +165,117 @@ for this endpoint - no rectification tool in this project used them
 before. First-pass implementation, not independently verified against a
 running install in the session that wrote it; sanity-check a few star
 positions against a known reference (e.g. Astrodienst) after deploying.
+
+### SVG chart wheel: `GET /astro/chart.svg`
+
+Same date/time/location/timezone/house_system parameters as `/astro`
+above, rendered as a standalone SVG natal chart wheel instead of JSON -
+see `engine/svg_chart.py` for the drawing code and the design notes in
+its module docstring (rotation convention, why the sign-wedge colors are
+a computed hue-stepped palette rather than hand-picked hex values, aspect
+line color/style rules, what "exact" means for the bold highlighting).
+
+    GET /astro/chart.svg?date=23.11.1993&time=14:30&city=Kyiv
+      &name=Displayed+person+name
+      &place=Displayed+place+name
+      &filename=Some_name.svg
+
+`name`/`place` are free-text header labels (the JSON report's `meta` has
+no "person's name" field, since a date/time/place alone doesn't carry
+one). `filename` only sets the `Content-Disposition` header so a
+browser's "save as" proposes that name - it does not change the response
+body, and nothing is written to disk on the server.
+
+Colors and layout were built from a ZET9 screenshot the project owner
+supplied as a loose visual reference, **not** a pixel-exact
+reproduction (their own framing of the brief) - sign-wedge hues, the
+hard/soft aspect color split, and the general header/wheel/list/table
+layout follow that reference; exact pixel colors, per-planet aspect-count
+balance bars, and ZET9's own (much larger) fixed-star catalog were
+deliberately not chased. Untested against a real browser/MediaWiki
+render in the session that wrote it (no network access to rasterize
+locally) - the SVG was checked for structural validity (finite
+coordinates, correct arc sweep directions, compiles/runs without
+exceptions against synthetic data shaped like a real `/astro` response)
+but not eyeballed rendered - render one real chart after deploying and
+compare against expectations before relying on it.
+
+Errors return a small SVG containing the error text (with the correct
+HTTP status code) rather than JSON - an `<img>`/external-image consumer
+like MediaWiki has nowhere to display JSON error text, so a visibly
+broken image with a readable message beats a broken image with none.
+
+## Integration with MediaWiki
+
+A ready-to-use Lua module lives at `install/Module_Astrodata.lua` -
+consumes `/astro` via the
+[External Data](https://www.mediawiki.org/wiki/Extension:External_Data)
+extension's `mw.ext.externalData.getExternalData` and `/astro/chart.svg`
+as an external-image link, and generates the Russian-language category
+tags described below. **This is the one file in the project kept in
+Russian rather than English** - it's Lua for a Russian-language wiki's
+editors to read and maintain directly, not Python for this project's own
+contributors, so the usual English-comments convention doesn't apply to
+it.
+
+### LocalSettings.php requirements
+
+External Data has no "named data source" indirection for Lua calls - the
+URL is always given directly in code, so the only real configuration
+needed is to allow-list the astromcp host:
+
+    $edgAllowExternalDataFrom = array( 'http://192.168.7.3:8765/' );
+
+For `p.wheel()` (the SVG chart), MediaWiki also needs permission to
+render an external URL as an `<img>` - its Sanitizer strips raw `<svg>`
+markup from wikitext/module output outright, so an allow-listed external
+image is the only working path without a JS gadget:
+
+    $wgAllowExternalImages = false;
+    $wgAllowExternalImagesFrom = array( 'http://192.168.7.3:8765/' );
+
+(`$wgAllowExternalImages = false` plus the `...From` allow-list scopes
+this to just the astromcp host, rather than opening external images from
+anywhere.)
+
+### Installing the module
+
+Create the wiki page `Module:Astrodata` and paste in the contents of
+`install/Module_Astrodata.lua`.
+
+### Calling it from a template
+
+The module reads `date`/`time`/`lat`/`lon`/`city`/`country`/`houses`/
+`name`/`place` from its own direct args and/or its parent frame's args
+(so both `{{#invoke:Astrodata|chart|date=...}}` and a template calling
+`{{#invoke:...}}` with already-named parameters work). Missing
+`date`, or missing both coordinates and a city, makes every function
+silently return `""` - no error text on the page, per the original
+design brief - so a template can call all four functions unconditionally
+without an `{{#if:}}` guard.
+
+    {{#invoke:Astrodata|chart
+      |date={{{Дата рождения}}} |time={{{Время рождения}}}
+      |lat={{{Широта рождения}}} |lon={{{Долгота рождения}}}
+      |city={{{Город рождения}}} |country={{{Страна рождения}}}
+    }}
+
+    {{#invoke:Astrodata|categories | ... same params ... }}
+
+    {{#invoke:Astrodata|wheel | ... same params ..., optionally |name=... |place=... }}
+
+    {{#invoke:Astrodata|deathCategories|date={{{Дата смерти}}}}}
+
+`city`/`country` are cleaned of `[[wikilink]]` markup internally, so
+passing them straight from wikitext fields is fine. `lat`/`lon` must be
+**decimal degrees with lat first, lon second** - a template that swaps
+them (this has happened once already) will silently geocode the wrong
+point whenever a page has explicit coordinates and no `city` fallback.
+
+`p.wheel()` names the downloadable file from the current page title
+(`Натал_<Заголовок,_с_подчёркиваниями>.svg`) - MediaWiki's standard
+"Фамилия, Имя Отчество" biography title convention maps onto this
+directly, no extra template parameter needed.
 
 ### How the LLM client learns the methodology
 

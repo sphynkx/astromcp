@@ -8,6 +8,7 @@ modified independently of the MCP transport plumbing.
 """
 
 import logging
+import urllib.parse
 from typing import Optional, List, Dict, Any
 
 from dotenv import load_dotenv
@@ -18,11 +19,12 @@ warnings.filterwarnings("ignore", message=".*Field 'lifespan' has an incomplete 
 
 from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from engine import config
 from engine import tools
 from engine import public_api
+from engine import svg_chart
 from engine.geocode import GeocodeError
 
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL, logging.INFO))
@@ -629,7 +631,9 @@ ASTRO_HELP_DOC = {
         "fixed stars, Arabic Part of Fortune) as flat JSON, meant for "
         "MediaWiki's External Data extension or any other plain HTTP JSON "
         "caller. Requires at least 'date' plus a location (lat+lon, or "
-        "city)."
+        "city). GET /astro/chart.svg takes the same params (plus name/"
+        "place/filename) and returns the same chart rendered as an SVG "
+        "wheel instead of JSON."
     ),
     "params": {
         "date": "required. DD.MM.YYYY",
@@ -659,15 +663,23 @@ ASTRO_HELP_DOC = {
             "(P=Placidus, K=Koch, W=Whole Sign, E=Equal, R=Regiomontanus, "
             "C=Campanus, O=Porphyry, M=Morinus). One system per call"
         ),
-        "no_aspects": "=1 to omit the 'aspects' section",
-        "no_house_cusp_aspects": "=1 to compute aspects for planets/angles only, excluding the 12 house cusps as targets",
-        "no_stars": "=1 to omit 'fixed_stars' / 'fixed_star_conjunctions'",
-        "no_parts": "=1 to omit 'arabic_parts'",
+        "no_aspects": "=1 to omit the 'aspects' section (JSON endpoint only)",
+        "no_house_cusp_aspects": "=1 to compute aspects for planets/angles only, excluding the 12 house cusps as targets (JSON endpoint only)",
+        "no_stars": "=1 to omit 'fixed_stars' / 'fixed_star_conjunctions' (JSON endpoint only)",
+        "no_parts": "=1 to omit 'arabic_parts' (JSON endpoint only)",
+        "name": "SVG endpoint only - person's name for the chart header (free text)",
+        "place": "SVG endpoint only - place name for the chart header, overrides the resolved city name",
+        "filename": (
+            "SVG endpoint only - suggested filename for the response's "
+            "Content-Disposition header (e.g. from a MediaWiki page title) "
+            "- affects what a browser's 'save as' proposes, not the image itself"
+        ),
     },
     "examples": [
         "GET /astro?date=23.11.1993&time=14:30&lat=50.45&lon=30.52",
         "GET /astro?date=23.11.1993&time=14:30&city=Kyiv",
         "GET /astro?date=23.11.1993&time=14:30&city=Kyiv&house_system=K",
+        "GET /astro/chart.svg?date=23.11.1993&time=14:30&city=Kyiv&name=Test+Person",
     ],
 }
 
@@ -681,6 +693,57 @@ def _astro_error(message: str, status_code: int) -> JSONResponse:
     from a MediaWiki External Data call.
     """
     return JSONResponse({"error": message, "help": ASTRO_HELP_DOC}, status_code=status_code)
+
+
+def _parse_astro_query(q) -> dict:
+    """
+    Shared parameter parsing for /astro and /astro/chart.svg - both need
+    the same date/time/location/timezone/house_system inputs, just render
+    them differently (JSON report vs. SVG wheel). Raises ValueError with a
+    caller-safe message on any bad/missing input; GeocodeError propagates
+    from build_full_report unchanged. Returns kwargs ready to splat into
+    public_api.build_full_report().
+    """
+    date_str = q.get("date")
+    if not date_str:
+        raise ValueError("missing required 'date' param (DD.MM.YYYY)")
+    try:
+        day, month, year = (int(x) for x in date_str.split("."))
+    except ValueError:
+        raise ValueError(f"invalid 'date' value '{date_str}' - expected DD.MM.YYYY")
+
+    time_str = q.get("time", "12:00")
+    try:
+        time_parts = time_str.split(":")
+        hour, minute = int(time_parts[0]), int(time_parts[1])
+        second = int(time_parts[2]) if len(time_parts) > 2 else 0
+    except (ValueError, IndexError):
+        raise ValueError(f"invalid 'time' value '{time_str}' - expected HH:MM or HH:MM:SS")
+
+    try:
+        lat = float(q["lat"]) if "lat" in q else None
+        lng = float(q["lon"]) if "lon" in q else (float(q["lng"]) if "lng" in q else None)
+    except ValueError:
+        raise ValueError("invalid 'lat'/'lon' value - expected decimal degrees")
+    city = q.get("city")
+    country_code = q.get("country_code")
+
+    if lat is None and lng is None and not city:
+        raise ValueError("provide either lat+lon, or a city name")
+
+    tz_str = q.get("tz")
+    try:
+        tz_offset = int(q["tz_offset"]) if "tz_offset" in q else None
+    except ValueError:
+        raise ValueError("invalid 'tz_offset' value - expected whole minutes, e.g. 180")
+
+    house_system = q.get("house_system")
+
+    return dict(
+        year=year, month=month, day=day, hour=hour, minute=minute, second=second,
+        lat=lat, lng=lng, city=city, country_code=country_code,
+        tz_str=tz_str, tz_offset_minutes=tz_offset, house_system=house_system,
+    )
 
 
 @mcp.custom_route("/astro", methods=["GET"])
@@ -703,53 +766,17 @@ async def astro_report(request: Request) -> JSONResponse:
 
     See ASTRO_HELP_DOC above for the full parameter list - kept in one
     place so the docstring here and the runtime help response can't drift
-    apart.
+    apart. See also GET /astro/chart.svg for the SVG wheel rendering of
+    the same data.
     """
     q = request.query_params
     if len(q) == 0:
         return JSONResponse({"help": ASTRO_HELP_DOC})
 
     try:
-        date_str = q.get("date")
-        if not date_str:
-            return _astro_error("missing required 'date' param (DD.MM.YYYY)", 400)
-        try:
-            day, month, year = (int(x) for x in date_str.split("."))
-        except ValueError:
-            return _astro_error(f"invalid 'date' value '{date_str}' - expected DD.MM.YYYY", 400)
-
-        time_str = q.get("time", "12:00")
-        try:
-            time_parts = time_str.split(":")
-            hour, minute = int(time_parts[0]), int(time_parts[1])
-            second = int(time_parts[2]) if len(time_parts) > 2 else 0
-        except (ValueError, IndexError):
-            return _astro_error(f"invalid 'time' value '{time_str}' - expected HH:MM or HH:MM:SS", 400)
-
-        try:
-            lat = float(q["lat"]) if "lat" in q else None
-            lng = float(q["lon"]) if "lon" in q else (float(q["lng"]) if "lng" in q else None)
-        except ValueError:
-            return _astro_error("invalid 'lat'/'lon' value - expected decimal degrees", 400)
-        city = q.get("city")
-        country_code = q.get("country_code")
-
-        if lat is None and lng is None and not city:
-            return _astro_error("provide either lat+lon, or a city name", 400)
-
-        tz_str = q.get("tz")
-        try:
-            tz_offset = int(q["tz_offset"]) if "tz_offset" in q else None
-        except ValueError:
-            return _astro_error("invalid 'tz_offset' value - expected whole minutes, e.g. 180", 400)
-
-        house_system = q.get("house_system")
-
+        params = _parse_astro_query(q)
         result = public_api.build_full_report(
-            year, month, day, hour, minute, second,
-            lat=lat, lng=lng, city=city, country_code=country_code,
-            tz_str=tz_str, tz_offset_minutes=tz_offset,
-            house_system=house_system,
+            **params,
             include_aspects=(q.get("no_aspects") != "1"),
             include_house_cusp_aspects=(q.get("no_house_cusp_aspects") != "1"),
             include_fixed_stars=(q.get("no_stars") != "1"),
@@ -764,6 +791,73 @@ async def astro_report(request: Request) -> JSONResponse:
     except Exception as e:
         logger.exception("astro_report failed")
         return _astro_error(str(e), 500)
+
+
+@mcp.custom_route("/astro/chart.svg", methods=["GET"])
+async def astro_chart_svg(request: Request) -> Response:
+    """
+    Same date/time/location/timezone/house_system params as /astro (see
+    ASTRO_HELP_DOC), rendered as an SVG natal chart wheel instead of JSON -
+    see engine/svg_chart.py for the drawing itself and the design notes
+    behind its color/layout choices.
+
+    GET /astro/chart.svg?date=23.11.1993&time=14:30&city=Kyiv
+      &name=Displayed+person+name        (optional, header line 1)
+      &place=Displayed+place+name        (optional, header line 3 -
+                                          overrides the resolved city name)
+      &filename=Some_name.svg            (optional - sets Content-Disposition
+                                          so "save as" suggests this name,
+                                          e.g. from a MediaWiki page title;
+                                          does NOT affect the response body)
+
+    Errors return a small SVG containing the error text (status code still
+    set correctly) rather than JSON - an <img>/external-image consumer
+    like MediaWiki has nowhere to show JSON error text, so a broken image
+    with visible text is more useful than a broken image with none.
+    """
+    q = request.query_params
+    try:
+        params = _parse_astro_query(q)
+        report = public_api.build_full_report(
+            **params,
+            include_aspects=True,
+            include_house_cusp_aspects=False,
+            include_fixed_stars=True,
+            include_arabic_parts=False,
+        )
+        svg_text = svg_chart.build_natal_chart_svg(
+            report,
+            person_name=q.get("name"),
+            place_label=q.get("place"),
+        )
+        headers = {}
+        filename = q.get("filename")
+        if filename:
+            # RFC 6266 - filename* is required for non-ASCII (Cyrillic)
+            # names; filename= fallback keeps older clients from choking.
+            quoted = urllib.parse.quote(filename)
+            headers["Content-Disposition"] = f"inline; filename=\"chart.svg\"; filename*=UTF-8''{quoted}"
+        return Response(svg_text, media_type="image/svg+xml", headers=headers)
+
+    except GeocodeError as e:
+        return _astro_svg_error(str(e), 404)
+    except ValueError as e:
+        return _astro_svg_error(str(e), 400)
+    except Exception as e:
+        logger.exception("astro_chart_svg failed")
+        return _astro_svg_error(str(e), 500)
+
+
+def _astro_svg_error(message: str, status_code: int) -> Response:
+    safe = message.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="480" height="120">'
+        '<rect width="480" height="120" fill="#fff0f0" stroke="#c23b3b"/>'
+        f'<text x="12" y="30" font-size="13" fill="#a03030">astromcp /astro/chart.svg error:</text>'
+        f'<text x="12" y="55" font-size="12" fill="#333">{safe}</text>'
+        '</svg>'
+    )
+    return Response(svg, media_type="image/svg+xml", status_code=status_code)
 
 
 @mcp.tool()
