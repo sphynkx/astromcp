@@ -18,9 +18,12 @@ actually good at rather than one library stretched to cover everything:
   alternate names can't be expected to cover: Russian exonyms that are a
   genuinely different word, not a spelling variant of the English name
   (Москва -> Moscow, Вена -> Vienna) - no transliteration or fuzzy match
-  will ever bridge that gap, it has to be a lookup table. Extend as your
-  wiki's actual usage shows what's needed, same policy as the original
-  curated table this replaced.
+  will ever bridge that gap, it has to be a lookup table. Each entry maps
+  to a LIST of English spellings tried in order (handles cases like
+  GeoNames' 2021 Odessa -> Odesa rename, where we can't be sure which
+  spelling a given install's bundled dataset actually uses). Extend as
+  your wiki's actual usage shows what's needed, same policy as the
+  original curated table this replaced.
 - Babel's CLDR data (Locale('ru').territories) for COUNTRY names - this
   one doesn't need curating at all, CLDR already ships an exact Russian
   name for every ISO 3166-1 territory, professionally maintained by the
@@ -112,51 +115,62 @@ _RU_COUNTRY_INDEX = {
 # bridges them). Keys lowercase. Extend as needed; seeded with the
 # post-Soviet cities and major world capitals most likely to come up in
 # rectification work off a Russian-language wiki.
+# Genuine Russian exonyms for cities - words that don't transliterate or
+# fuzzy-match to their English name (unlike "Одесса"/"Odessa", which are
+# close enough that geonamescache's own alternatenames likely already
+# bridges them). Keys lowercase, values are the English name(s) to try
+# against the geonamescache index, in order - a list handles cases where
+# the "official" English spelling has changed over time (e.g. GeoNames'
+# 2021 Odessa -> Odesa rename) and we can't be sure which one this
+# install's bundled dataset actually uses. Extend as needed; seeded with
+# the post-Soviet cities and major world capitals most likely to come up
+# in rectification work off a Russian-language wiki.
 RU_CITY_EXONYMS = {
-    "москва": "Moscow",
-    "санкт-петербург": "Saint Petersburg",
-    "петербург": "Saint Petersburg",
-    "ленинград": "Saint Petersburg",
-    "киев": "Kyiv",
-    "минск": "Minsk",
-    "вена": "Vienna",
-    "прага": "Prague",
-    "варшава": "Warsaw",
-    "белград": "Belgrade",
-    "бухарест": "Bucharest",
-    "рим": "Rome",
-    "флоренция": "Florence",
-    "неаполь": "Naples",
-    "венеция": "Venice",
-    "мюнхен": "Munich",
-    "кельн": "Cologne",
-    "женева": "Geneva",
-    "цюрих": "Zurich",
-    "гаага": "The Hague",
-    "лондон": "London",
-    "эдинбург": "Edinburgh",
-    "париж": "Paris",
-    "марсель": "Marseille",
-    "афины": "Athens",
-    "тбилиси": "Tbilisi",
-    "ереван": "Yerevan",
-    "баку": "Baku",
-    "кишинёв": "Chisinau",
-    "кишинев": "Chisinau",
-    "рига": "Riga",
-    "вильнюс": "Vilnius",
-    "таллин": "Tallinn",
-    "хельсинки": "Helsinki",
-    "стокгольм": "Stockholm",
-    "копенгаген": "Copenhagen",
-    "пекин": "Beijing",
-    "токио": "Tokyo",
-    "нью-йорк": "New York",
-    "лос-анджелес": "Los Angeles",
-    "иерусалим": "Jerusalem",
-    "каир": "Cairo",
-    "дели": "Delhi",
-    "стамбул": "Istanbul",
+    "москва": ["Moscow"],
+    "санкт-петербург": ["Saint Petersburg"],
+    "петербург": ["Saint Petersburg"],
+    "ленинград": ["Saint Petersburg"],
+    "киев": ["Kyiv", "Kiev"],
+    "одесса": ["Odesa", "Odessa"],
+    "минск": ["Minsk"],
+    "вена": ["Vienna"],
+    "прага": ["Prague"],
+    "варшава": ["Warsaw"],
+    "белград": ["Belgrade"],
+    "бухарест": ["Bucharest"],
+    "рим": ["Rome"],
+    "флоренция": ["Florence"],
+    "неаполь": ["Naples"],
+    "венеция": ["Venice"],
+    "мюнхен": ["Munich"],
+    "кельн": ["Cologne"],
+    "женева": ["Geneva"],
+    "цюрих": ["Zurich"],
+    "гаага": ["The Hague"],
+    "лондон": ["London"],
+    "эдинбург": ["Edinburgh"],
+    "париж": ["Paris"],
+    "марсель": ["Marseille"],
+    "афины": ["Athens"],
+    "тбилиси": ["Tbilisi"],
+    "ереван": ["Yerevan"],
+    "баку": ["Baku"],
+    "кишинёв": ["Chisinau"],
+    "кишинев": ["Chisinau"],
+    "рига": ["Riga"],
+    "вильнюс": ["Vilnius"],
+    "таллин": ["Tallinn"],
+    "хельсинки": ["Helsinki"],
+    "стокгольм": ["Stockholm"],
+    "копенгаген": ["Copenhagen"],
+    "пекин": ["Beijing"],
+    "токио": ["Tokyo"],
+    "нью-йорк": ["New York"],
+    "лос-анджелес": ["Los Angeles"],
+    "иерусалим": ["Jerusalem"],
+    "каир": ["Cairo"],
+    "дели": ["Delhi"],
+    "стамбул": ["Istanbul"],
 }
 
 _CYRILLIC_RE = re.compile("[\u0400-\u04FF]")
@@ -212,7 +226,13 @@ def _find_city_candidates(name: str) -> Optional[List[dict]]:
     key = name.strip().lower()
 
     if key in RU_CITY_EXONYMS:
-        key = RU_CITY_EXONYMS[key].lower()
+        for english_name in RU_CITY_EXONYMS[key]:
+            candidates = _CITY_INDEX.get(english_name.lower())
+            if candidates:
+                return candidates
+        # exonym known, but none of its listed English spellings are in
+        # this install's dataset - fall through to the generic paths
+        # below rather than giving up immediately.
 
     candidates = _CITY_INDEX.get(key)
     if candidates:
