@@ -56,9 +56,17 @@ an MCP connector (streamable-http transport), not fetched as a plain URL.
         ├── scan.py             # rectif_scan: sweeps candidate birth times
         ├── criteria.py         # Grishchenyuk / Timoshenko / Bonatti / Herich criterion tests
         ├── clustering.py       # Israitel/Brady degree-clustering rectification
-        ├── arabic_parts.py     # Part of Fortune + Kutalev's general Lot formula
+        ├── arabic_parts.py     # Lot FORMULAS: Part of Fortune + Kutalev's general
+        │                       # Lot formula - see lots.py for the generic engine
+        │                       # that turns a formula into a full point
+        ├── lots.py             # generic Lot/Arabic Part framework: LOT_REGISTRY
+        │                       # (name -> formula) + compute_lot (formula -> full
+        │                       # point with house placement, numeric speed, ready
+        │                       # to feed into the same aspect engine as a planet)
         ├── relations.py        # "elements of house" - see houses.py
-        ├── houses.py           # house ruler/co-ruler/occupant lookups
+        ├── houses.py           # house ruler/co-ruler/occupant lookups, and
+        │                       # house_number_for_longitude (used by lots.py for
+        │                       # points that aren't one of kerykeion's own objects)
         ├── jobs.py             # in-memory async job registry for long scans
         ├── help.py             # reads help_texts/*.md on demand
         ├── tools.py            # MCP tool implementations (no MCP dependency itself)
@@ -117,11 +125,42 @@ Response shape (see `engine/public_api.py` for the full docstring):
       "planets": {"sun": {...}, "moon": {...}, ...},
       "houses":  {"asc": {...}, "mc": {...}, "house_1": {...}, ..., "house_12": {...}},
       "aspects": [{"point_a": "...", "point_b": "...", "aspect_deg": ..., "exact_orb": ..., "status": "..."}],
-      "arabic_parts": {"part_of_fortune": ..., "is_day_birth": ...},
+      "lots": {"part_of_fortune": {"abs_pos": ..., "sign": ..., "house": ..., "speed": ...}, ...},
+      "is_day_birth": true,
       "fixed_stars": {"Regulus": {...}, ...},
       "fixed_star_conjunctions": [{"star": "...", "point": "...", "orb": ...}],
-      "meta": {"schema_version": 1, ...}
+      "meta": {"schema_version": 2, ...}
     }
+
+### Lots / Arabic Parts
+
+`engine/lots.py` is a generic framework, not a hardcoded Part of Fortune
+special-case: a Lot is a name registered in `LOT_REGISTRY` pointing at a
+FORMULA (`(raw: dict) -> float`, an ecliptic longitude - `raw` being the
+full kerykeion dump, so a formula can reference any point/house/cusp and
+do whatever arithmetic or conditional logic the theory calls for). The
+engine (`compute_lot`) turns whatever a formula returns into a full point
+- sign, house placement (`houses.house_number_for_longitude`, since a
+Lot isn't one of kerykeion's own objects and has no `.house` field the
+way a planet does), and a NUMERIC speed estimate (the same formula
+evaluated against the chart recomputed 10 minutes later, one shared
+extra ephemeris call per request regardless of how many Lots are
+requested) - so aspects.compute_aspects() can tell applying from
+separating for it same as any planet. That numeric-rather-than-analytic
+speed is deliberate: it works identically for any formula added to the
+registry later, with no per-formula derivative to hand-derive.
+
+Only `part_of_fortune` is registered today. Request others via
+`&lots=name1,name2` (default is just `part_of_fortune` if omitted); an
+unregistered name returns a 400 naming what IS registered rather than
+silently doing nothing. Adding a new Lot is a code change (write a
+formula function, add one line to `LOT_REGISTRY` or call
+`register_lot()`) - there's no way to submit an arbitrary formula via the
+HTTP API itself, on purpose: `arabic_parts.compute_arabic_part` (Kutalev's
+general formula) needs a ruler/significator choice that this project's
+own methodology treats as a reasoned judgment call per case (see
+`help_texts/rectification.md`), not something to accept unreviewed from
+a query string.
 
 Only ONE house system is computed per call (default from
 `ASTROMCP_HOUSE_SYSTEM`, override with `&house_system=K` etc.) - mixing
@@ -330,13 +369,13 @@ Create the wiki page `Module:Astrodata` and paste in the contents of
 ### Calling it from a template
 
 The module reads `date`/`time`/`lat`/`lon`/`city`/`country`/`houses`/
-`name`/`place`/`photo` from its own direct args and/or its parent frame's
-args (so both `{{#invoke:Astrodata|planetslist|date=...}}` and a template
-calling `{{#invoke:...}}` with already-named parameters work). Missing
-`date`, or missing both coordinates and a city, makes every function
-silently return `""` - no error text on the page, per the original
-design brief - so a template can call all five functions unconditionally
-without an `{{#if:}}` guard.
+`name`/`place`/`photo`/`lots` from its own direct args and/or its parent
+frame's args (so both `{{#invoke:Astrodata|planetslist|date=...}}` and a
+template calling `{{#invoke:...}}` with already-named parameters work).
+Missing `date`, or missing both coordinates and a city, makes every
+function silently return `""` - no error text on the page, per the
+original design brief - so a template can call all five functions
+unconditionally without an `{{#if:}}` guard.
 
     {{#invoke:Astrodata|planetslist
       |date={{{Дата рождения}}} |time={{{Время рождения}}}
@@ -364,6 +403,20 @@ glyph rather than a spelled-out name - `planetslist` also shows an
 essential-dignity letter (domicile/exaltation/detriment/fall - see
 `PLANET_DIGNITY` in the module) between the glyph and the position, and
 `aspectslist` bolds aspects tighter than 1 degree.
+
+**Lots/Arabic Parts** (see the `/astro` README section above for the
+server-side framework) show up in `planetslist`, `aspectslist`, and
+`categories` automatically once the server returns a `json.lots` section
+- the module's `LOT` table (parallel to `PLANET`) maps a registered
+Lot's name to its display glyph/nominative/genitive, and `pointInfo()`
+looks up either table so aspect rendering doesn't care whether a point
+is a planet or a Lot. Only `part_of_fortune` is registered on the server
+by default; pass `|lots=part_of_fortune,other_name` to request others
+once they exist (see `engine/lots.py`). Adding a NEWLY-registered
+server-side Lot to the module's own display (glyph, name) is a one-line
+addition to the `LOT` table - the rest (table rows, aspect rows,
+categories) picks it up automatically since it all iterates `LOT_IDS`/
+`json.lots` generically rather than hardcoding `part_of_fortune`.
 
 `p.wheel()` names the downloadable file from the current page title
 (`Натал_<Заголовок,_с_подчёркиваниями>.svg`) - MediaWiki's standard

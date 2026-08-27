@@ -24,7 +24,7 @@ for a known date) before trusting it in production.
 from typing import Dict, Any, List
 import swisseph as swe
 
-from .constants import SIGN_ORDER
+from .constants import decompose_longitude
 
 # A traditionally significant subset - the four Persian "Royal Stars" plus
 # a handful of other stars with well-documented interpretive traditions.
@@ -45,16 +45,6 @@ DEFAULT_STAR_LIST: List[str] = [
     "Rigel",
 ]
 
-
-def _sign_and_position(abs_pos: float) -> Dict[str, Any]:
-    abs_pos = abs_pos % 360
-    idx = int(abs_pos // 30)
-    return {
-        "abs_pos": abs_pos,
-        "sign": SIGN_ORDER[idx],
-        "sign_num": idx,
-        "position": abs_pos - idx * 30,
-    }
 
 
 def compute_fixed_stars(
@@ -85,7 +75,7 @@ def compute_fixed_stars(
             xx, resolved_name, retflags = swe.fixstar2_ut(star_name, julian_day_ut, flags)
             lon, lat, dist = xx[0], xx[1], xx[2]
             mag, _ = swe.fixstar2_mag(star_name)
-            entry = _sign_and_position(lon)
+            entry = decompose_longitude(lon)
             entry["ecliptic_latitude"] = lat
             entry["distance_au"] = dist
             entry["magnitude"] = mag

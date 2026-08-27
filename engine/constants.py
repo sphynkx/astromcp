@@ -25,6 +25,26 @@ ANGLE_KEYS = ["ascendant", "descendant", "medium_coeli", "imum_coeli"]
 
 SIGN_ORDER = ["Ari", "Tau", "Gem", "Can", "Leo", "Vir", "Lib", "Sco", "Sag", "Cap", "Aqu", "Pis"]
 
+
+def decompose_longitude(abs_pos):
+    """
+    Ecliptic longitude (any real number of degrees, wrapped to 0-360) ->
+    {abs_pos, sign, sign_num, position} - the same shape kerykeion gives
+    its own points, for any longitude WE compute ourselves (a fixed star,
+    a Lot/Arabic Part, ...) rather than one kerykeion already knows about.
+    Was duplicated privately in fixed_stars.py and about to be duplicated
+    again in lots.py - promoted here as the one shared place to change it.
+    """
+    abs_pos = abs_pos % 360
+    idx = int(abs_pos // 30)
+    return {
+        "abs_pos": abs_pos,
+        "sign": SIGN_ORDER[idx],
+        "sign_num": idx,
+        "position": abs_pos - idx * 30,
+    }
+
+
 LUMINARY_NAMES = {"sun", "moon"}
 
 # Traditional (Hellenistic/medieval) sign rulerships - the 7 classical

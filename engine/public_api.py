@@ -22,13 +22,15 @@ imports) - see app.py for the actual HTTP route that calls it.
 """
 
 import logging
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
 from . import config
 from .chart import build_subject
 from .aspects import compute_aspects, angular_separation
 from .constants import DEFAULT_POINTS, ANGLE_KEYS, HOUSE_KEYS, LUMINARY_NAMES
-from .arabic_parts import compute_part_of_fortune, is_day_birth
+from .arabic_parts import is_day_birth
+from .lots import compute_all_lots
 from .fixed_stars import compute_fixed_stars, stars_conjunct_points
 from . import geocode
 
@@ -116,6 +118,7 @@ def build_full_report(
     include_house_cusp_aspects: bool = True,
     include_fixed_stars: bool = True,
     include_arabic_parts: bool = True,
+    lots: Optional[List[str]] = None,
     aspect_set: Optional[List[float]] = None,
     orb_table: Optional[Dict[float, float]] = None,
     name: str = "subject",
@@ -125,8 +128,10 @@ def build_full_report(
     flat shape meant for MediaWiki's External Data extension: all planets
     + nodes + Chiron + Lilith, houses (angles + all 12 cusps, one house
     system per call), the full natal aspect grid (optionally including
-    house cusps as aspect targets, not just planets/angles), Part of
-    Fortune, and fixed-star positions with any conjunctions to chart
+    house cusps as aspect targets, not just planets/angles), any
+    requested Lots/Arabic Parts (see engine/lots.py - each gets house
+    placement and aspects the same as a planet, not just a bare
+    longitude), and fixed-star positions with any conjunctions to chart
     points.
 
     Location: either lat+lng, or a city name resolved via the offline
@@ -143,11 +148,18 @@ def build_full_report(
     explicitly instead of relying on this fallback (see geocode.py and
     help_texts/rectification.md's timezone notes - the same Soviet
     decree-time pitfall applies here).
+
+    lots - which registered Lots (engine/lots.LOT_REGISTRY) to compute,
+    when include_arabic_parts is True. Defaults to just "part_of_fortune"
+    - the one universally unambiguous Lot - if not given. Unknown names
+    raise ValueError (via engine/lots.compute_lot) naming what IS
+    registered, rather than silently skipping a typo.
     """
     house_system = house_system or config.DEFAULT_HOUSE_SYSTEM
     zodiac_type = zodiac_type or config.DEFAULT_ZODIAC_TYPE
     aspect_set = aspect_set if aspect_set is not None else config.DEFAULT_ASPECT_SET
     orb_table = orb_table or config.DEFAULT_ORB_TABLE_TRANSIT
+    lots = lots if lots is not None else ["part_of_fortune"]
 
     resolved_lat, resolved_lng, location_source, resolved_city_name = \
         _resolve_location(lat, lng, city, country_code)
@@ -186,8 +198,28 @@ def build_full_report(
         "houses": houses,
     }
 
+    lot_points: Dict[str, Any] = {}
+    if include_arabic_parts and lots:
+        # One extra ephemeris computation, shared across every requested
+        # Lot (not one per Lot) - see engine/lots.py for why a numeric
+        # speed estimate needs a second, slightly time-shifted chart at
+        # all.
+        dt_hours = 1.0 / 6.0  # 10 minutes
+        shifted = datetime(year, month, day, hour, minute, second) + timedelta(hours=dt_hours)
+        future_subject, _, _ = build_subject(
+            name, shifted.year, shifted.month, shifted.day,
+            shifted.hour, shifted.minute, shifted.second,
+            resolved_lat, resolved_lng, tz_str, tz_offset_minutes,
+            house_system, zodiac_type,
+        )
+        raw_future = future_subject.model_dump(mode="json")
+        lot_points = compute_all_lots(lots, raw, raw_future, dt_hours)
+        result["lots"] = lot_points
+        result["is_day_birth"] = is_day_birth(raw)
+
     if include_aspects:
         aspect_points = dict(planets)
+        aspect_points.update(lot_points)
         for angle_key in ANGLE_KEYS:
             if raw.get(angle_key) is not None:
                 aspect_points[ANGLE_SHORT_NAMES[angle_key]] = raw[angle_key]
@@ -200,18 +232,12 @@ def build_full_report(
             aspect_points, aspect_set, orb_table, luminary_bonus,
         )
 
-    if include_arabic_parts:
-        result["arabic_parts"] = {
-            "part_of_fortune": compute_part_of_fortune(raw),
-            "is_day_birth": is_day_birth(raw),
-        }
-
     if include_fixed_stars:
         jd = raw.get("julian_day") or getattr(subject, "julian_day", None)
         if jd is not None:
             stars = compute_fixed_stars(jd)
             result["fixed_stars"] = stars
-            star_target_points = {**planets, **{
+            star_target_points = {**planets, **lot_points, **{
                 ANGLE_SHORT_NAMES[k]: raw[k] for k in ANGLE_KEYS if raw.get(k) is not None
             }}
             result["fixed_star_conjunctions"] = stars_conjunct_points(
@@ -231,6 +257,8 @@ def build_full_report(
         "house_system": house_system,
         "zodiac_type": zodiac_type,
         "input_datetime": f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}",
-        "schema_version": 1,
+        "schema_version": 2,  # bumped: "arabic_parts" -> "lots" (richer
+                              # per-Lot shape: house+speed, not a bare
+                              # float), new top-level "is_day_birth"
     }
     return result

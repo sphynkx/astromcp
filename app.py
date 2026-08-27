@@ -667,7 +667,14 @@ ASTRO_HELP_DOC = {
         "no_aspects": "=1 to omit the 'aspects' section (JSON endpoint only)",
         "no_house_cusp_aspects": "=1 to compute aspects for planets/angles only, excluding the 12 house cusps as targets (JSON endpoint only)",
         "no_stars": "=1 to omit 'fixed_stars' / 'fixed_star_conjunctions' (JSON endpoint only)",
-        "no_parts": "=1 to omit 'arabic_parts' (JSON endpoint only)",
+        "no_parts": "=1 to omit 'lots' and 'is_day_birth' (JSON endpoint only)",
+        "lots": (
+            "comma-separated list of registered Lot/Arabic Part names to "
+            "compute (see engine/lots.py:LOT_REGISTRY) - default "
+            "'part_of_fortune' if omitted. Each gets house placement and "
+            "aspects the same as a planet. Unknown names return a 400 "
+            "naming what IS registered."
+        ),
         "name": "SVG endpoint only - person's name for the chart header (free text)",
         "place": "SVG endpoint only - place name for the chart header, overrides the resolved city name",
         "filename": (
@@ -777,12 +784,14 @@ async def astro_report(request: Request) -> JSONResponse:
 
     try:
         params = _parse_astro_query(q)
+        lots_param = q.get("lots")
         result = public_api.build_full_report(
             **params,
             include_aspects=(q.get("no_aspects") != "1"),
             include_house_cusp_aspects=(q.get("no_house_cusp_aspects") != "1"),
             include_fixed_stars=(q.get("no_stars") != "1"),
             include_arabic_parts=(q.get("no_parts") != "1"),
+            lots=[s.strip() for s in lots_param.split(",")] if lots_param else None,
         )
         return JSONResponse(result)
 
@@ -811,6 +820,10 @@ async def astro_chart_svg(request: Request) -> Response:
                                           so "save as" suggests this name,
                                           e.g. from a MediaWiki page title;
                                           does NOT affect the response body)
+      &lots=part_of_fortune,other_name   (optional - which registered Lots
+                                          to draw, see engine/lots.py;
+                                          default is just part_of_fortune)
+      &no_parts=1                        (optional - omit Lots entirely)
 
     Errors return a small SVG containing the error text (status code still
     set correctly) rather than JSON - an <img>/external-image consumer
@@ -820,12 +833,14 @@ async def astro_chart_svg(request: Request) -> Response:
     q = request.query_params
     try:
         params = _parse_astro_query(q)
+        lots_param = q.get("lots")
         report = public_api.build_full_report(
             **params,
             include_aspects=True,
             include_house_cusp_aspects=True,
             include_fixed_stars=True,
-            include_arabic_parts=False,
+            include_arabic_parts=(q.get("no_parts") != "1"),
+            lots=[s.strip() for s in lots_param.split(",")] if lots_param else None,
         )
         photo_data_uri = photo_fetch.fetch_photo_as_data_uri(q.get("photo_url"))
         svg_text = svg_chart.build_natal_chart_svg(

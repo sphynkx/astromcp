@@ -89,3 +89,31 @@ def get_house_element_names(
             if name not in elements:
                 elements.append(name)
     return elements
+
+
+def house_number_for_longitude(natal_raw: Dict[str, Any], abs_pos: float) -> int:
+    """
+    Which house (1-12) a given ecliptic longitude falls in, from this
+    chart's own 12 cusps. For points kerykeion doesn't already know about
+    itself (kerykeion only sets a `.house` field on its own computed
+    objects) - a computed Lot/Arabic Part is exactly this case, see
+    engine/lots.py.
+
+    Handles house-size wraparound generically (a house's angular span is
+    just the gap to the next cusp, going forward around the circle - works
+    the same way regardless of house system, and regardless of whether
+    that particular house happens to be wider than 180 degrees under some
+    system/latitude combination).
+    """
+    cusps = [natal_raw[HOUSE_KEYS[i]]["abs_pos"] for i in range(12)]
+    abs_pos = abs_pos % 360
+    for i in range(12):
+        start = cusps[i]
+        end = cusps[(i + 1) % 12]
+        span = (end - start) % 360
+        if span == 0:
+            span = 360
+        offset = (abs_pos - start) % 360
+        if offset < span:
+            return i + 1
+    return 12  # defensive fallback - shouldn't be reachable given the loop above covers the full circle

@@ -1,12 +1,14 @@
 -- Модуль:Astrodata
 -- Обёртка над astromcp REST API (/astro, см. astromcp.sphynkx.org.ua) для
 -- получения натальных данных рождения и генерации:
---   p.planetslist(frame)    - табличка планет + углов, с эмодзи-символами
---                             и буквами достоинства (обитель/экзальтация/
---                             изгнание/падение)
---   p.aspectslist(frame)    - табличка аспектов, точные аспекты жирным
+--   p.planetslist(frame)    - табличка планет + углов + Парсов, с
+--                             эмодзи-символами и буквами достоинства
+--                             (обитель/экзальтация/изгнание/падение)
+--   p.aspectslist(frame)    - табличка аспектов (включая Парсы), точные
+--                             аспекты жирным
 --   p.categories(frame)     - категории по знакам/ретроградности/домам/
---                             аспектам/соединениям со звёздами (рождение)
+--                             аспектам/соединениям со звёздами/Парсам
+--                             (рождение)
 --   p.wheel(frame)          - SVG-колесо натальной карты (см. комментарий
 --                             у самой функции)
 --   p.deathCategories(frame) - категории по дате смерти (не требует
@@ -163,6 +165,28 @@ local ANGLES = {
 	{ key = "ic",  table_label = "IC",  cat_label = "IC" },
 }
 
+-- Парсы (Арабские точки) - см. engine/lots.py:LOT_REGISTRY на стороне
+-- сервиса. Сервис отдаёт их в json.lots{имя: {abs_pos,sign,position,
+-- house,speed, name_ru,gen_ru,abbr,glyph,description}} - позиционные
+-- поля той же формы, что у планет, ПЛЮС уже готовые подписи для вывода.
+-- Специально НЕТ своей локальной таблицы с именами/значками для Парсов
+-- (в отличие от PLANET выше) - вся эта информация теперь приходит с
+-- сервера вместе с данными, поэтому добавление нового зарегистрированного
+-- там Парса не требует правки этого модуля вообще. По умолчанию сервис
+-- отдаёт только "part_of_fortune" - если понадобятся другие, передайте
+-- |lots=part_of_fortune,другое_имя в вызов (см. buildQuery).
+--
+-- glyph заполнен только у Парсов с широко известным символом (Фортуна -
+-- ⊗); для большинства будущих Парсов сервер пришлёт glyph=nil и здесь
+-- используется abbr (короткая текстовая аббревиатура) вместо него - см.
+-- lotGlyph() ниже.
+local function lotGlyph(lot)
+	if lot.glyph and lot.glyph ~= "" then
+		return lot.glyph
+	end
+	return lot.abbr or "?"
+end
+
 -- ==================== Вспомогательные функции ====================
 
 -- [[Target]] или [[Target|Display]] -> Target (без разметки)
@@ -176,6 +200,21 @@ end
 
 local function isBlank(s)
 	return s == nil or mw.text.trim(tostring(s)) == ""
+end
+
+-- json.lots - обычная Lua-таблица без гарантированного порядка обхода
+-- (pairs()) - собираем и сортируем ключи по имени один раз, чтобы вывод
+-- (planetslist/categories) был стабильным между вызовами, а не прыгал в
+-- случайном порядке от запроса к запросу.
+local function sortedLotIds(json)
+	local ids = {}
+	if json.lots then
+		for id in pairs(json.lots) do
+			table.insert(ids, id)
+		end
+		table.sort(ids)
+	end
+	return ids
 end
 
 -- Десятичный градус внутри знака (0-30) + 3-буквенный код знака из JSON
@@ -375,6 +414,12 @@ local function buildQuery(args, base)
 			table.insert(parts, "country_code=" .. mw.uri.encode(country))
 		end
 	end
+	-- |lots=part_of_fortune,другое_имя - какие зарегистрированные на
+	-- сервисе Парсы считать (см. engine/lots.py:LOT_REGISTRY). Не задано -
+	-- сервис сам подставит дефолт (сейчас это "part_of_fortune").
+	if not isBlank(args.lots) then
+		table.insert(parts, "lots=" .. mw.uri.encode(args.lots))
+	end
 
 	return base .. "?" .. table.concat(parts, "&")
 end
@@ -472,6 +517,16 @@ function p.planetslist(frame)
 		end
 	end
 
+	if json.lots then
+		for _, id in ipairs(sortedLotIds(json)) do
+			local lot = json.lots[id]
+			if lot then
+				local isRetro = lot.speed ~= nil and lot.speed < 0
+				table.insert(rows, positionRow(lotGlyph(lot), lot.position, lot.sign, isRetro))
+			end
+		end
+	end
+
 	if #rows == 0 then
 		return ""
 	end
@@ -488,6 +543,24 @@ local CONVERGENCE_MARK = {
 	applying   = ">\226\128\162<",  -- ">•<"
 	separating = "<\226\128\162>",  -- "<•>"
 }
+
+-- Общий поиск по имени точки среди планет (таблица PLANET) и
+-- зарегистрированных Парсов (json.lots, приходит с сервера целиком -
+-- никакой локальной таблицы под Парсы больше нет). Обе ветки возвращают
+-- одну и ту же форму {nom, gen, glyph}, так что дальше по коду неважно,
+-- откуда взялась точка.
+local function pointInfo(id, json)
+	local planet = PLANET[id]
+	if planet then
+		return planet
+	end
+	local lot = json and json.lots and json.lots[id]
+	if lot then
+		return { nom = lot.name_ru or id, gen = lot.gen_ru or lot.name_ru or id, glyph = lotGlyph(lot) }
+	end
+	return nil
+end
+
 function p.aspectslist(frame)
 	local args = resolveArgs(frame)
 	local json = p._getData(args)
@@ -497,7 +570,7 @@ function p.aspectslist(frame)
 
 	local rows = {}
 	for _, asp in ipairs(json.aspects) do
-		local a, b = PLANET[asp.point_a], PLANET[asp.point_b]
+		local a, b = pointInfo(asp.point_a, json), pointInfo(asp.point_b, json)
 		local aspGlyph = ASPECT_GLYPH[asp.aspect_deg]
 		if a and b and aspGlyph then
 			local orb = tonumber(asp.exact_orb) or 0
@@ -522,9 +595,10 @@ function p.aspectslist(frame)
 end
 
 -- Категории: знак планеты, ретроградность, дом планеты, знак угловых
--- домов, аспекты между классическими точками (10 планет + Хирон + Лилит -
--- без углов/куспидов, иначе категорий будет на порядок больше, чем нужно -
--- пока не реализованы аспекты к углам),
+-- домов, знак и дом Парсов (см. json.lots), аспекты между классическими
+-- точками + Парсами (10 планет + Хирон + Лилит + зарегистрированные
+-- Парсы - без углов/куспидов, иначе категорий будет на порядок больше,
+-- чем нужно - пока не реализованы аспекты к углам),
 -- соединения неподвижных звёзд с планетами.
 function p.categories(frame)
 	local args = resolveArgs(frame)
@@ -568,9 +642,28 @@ function p.categories(frame)
 		end
 	end
 
+	if json.lots then
+		for _, id in ipairs(sortedLotIds(json)) do
+			local lot = json.lots[id]
+			if lot then
+				local nom = lot.name_ru or id
+				local loc = SIGN_LOCATIVE[lot.sign]
+				if loc then
+					addCat(nom .. " " .. loc)
+				end
+				-- lot.house уже число (1-12) - в отличие от планет, парсам
+				-- дом не проставляет Kerykeion, сервис считает его сам и
+				-- отдаёт готовым числом, а не строкой "Fifth_House".
+				if lot.house then
+					addCat(nom .. " в " .. lot.house .. " доме")
+				end
+			end
+		end
+	end
+
 	if json.aspects then
 		for _, asp in ipairs(json.aspects) do
-			local a, b = PLANET[asp.point_a], PLANET[asp.point_b]
+			local a, b = pointInfo(asp.point_a, json), pointInfo(asp.point_b, json)
 			local aspName = ASPECT_NAMES[asp.aspect_deg]
 			if a and b and aspName then
 				addCat(aspName .. " " .. a.gen .. " и " .. b.gen)

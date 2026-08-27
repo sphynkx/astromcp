@@ -255,12 +255,15 @@ def _title(text: str) -> str:
     return f"<title>{_esc(text)}</title>"
 
 
-def _aspect_lines_for_point(point_key: str, aspects: List[Dict[str, Any]]) -> List[str]:
+def _aspect_lines_for_point(point_key: str, aspects: List[Dict[str, Any]],
+                             names_ru: Dict[str, str]) -> List[str]:
     """
-    Formats every aspect involving point_key (a CHART_POINTS id, an angle
-    key, or a 'house_N' key) as tooltip lines: "<AspectName> <orb>
-    <OtherName> <convergence mark>". Used by planet, cusp, and angle
-    tooltips alike.
+    Formats every aspect involving point_key (a CHART_POINTS id, a Lot id,
+    an angle key, or a 'house_N' key) as tooltip lines: "<AspectName>
+    <orb> <OtherName> <convergence mark>". Used by planet, cusp, angle,
+    and Lot tooltips alike. names_ru resolves point ids to display names -
+    built once in build_natal_chart_svg (planets + registered Lots), so
+    this function itself needs no per-point-type special-casing.
     """
     lines = []
     for asp in aspects:
@@ -274,7 +277,7 @@ def _aspect_lines_for_point(point_key: str, aspects: List[Dict[str, Any]]) -> Li
         asp_name = ASPECT_NAMES_RU.get(asp.get("aspect_deg"))
         if not asp_name:
             continue
-        other_name = PLANET_NAMES_RU.get(other, other)
+        other_name = names_ru.get(other, other)
         orb = asp.get("exact_orb", 0)
         orb_deg = int(orb)
         orb_min = int(round((orb - orb_deg) * 60))
@@ -304,20 +307,36 @@ def build_natal_chart_svg(
     """
     planets = report.get("planets", {})
     houses = report.get("houses", {})
+    lots = report.get("lots", {})
+    lot_ids = list(lots.keys())
     aspects_raw = report.get("aspects", [])
     # House-to-house (and angle-to-angle/angle-to-house) aspects are a
     # meaningless byproduct of computing aspects across the full point set
-    # (planets + angles + all 12 cusps) - a cusp is "opposite" its
+    # (planets + Lots + angles + all 12 cusps) - a cusp is "opposite" its
     # counterpart by construction, that's not an astrological finding.
-    # Keep only aspects where at least one side is an actual planet;
-    # planet-to-house and planet-to-angle aspects are still meaningful and
-    # stay in.
+    # Keep only aspects where at least one side is an actual planet or a
+    # Lot; planet/Lot-to-house and planet/Lot-to-angle aspects are still
+    # meaningful and stay in.
+    meaningful_points = set(CHART_POINTS) | set(lot_ids)
     aspects = [
         a for a in aspects_raw
-        if a.get("point_a") in CHART_POINTS or a.get("point_b") in CHART_POINTS
+        if a.get("point_a") in meaningful_points or a.get("point_b") in meaningful_points
     ]
     conjunctions = report.get("fixed_star_conjunctions", [])
     meta = report.get("meta", {})
+
+    # Combined glyph/name lookups (planets + whatever Lots this report
+    # actually carries) - built once here so every place below that draws
+    # or labels a point (side list, wheel glyphs, aspect table, tooltips)
+    # treats a Lot exactly like a planet without its own special-casing.
+    # A Lot's symbol is its dedicated glyph if it has one (Part of
+    # Fortune's ⊗), otherwise its abbreviation (engine/lots.py - most
+    # future Lots won't have a traditional dedicated symbol).
+    all_glyphs: Dict[str, str] = dict(PLANET_GLYPHS)
+    all_names_ru: Dict[str, str] = dict(PLANET_NAMES_RU)
+    for lid, ldata in lots.items():
+        all_glyphs[lid] = ldata.get("glyph") or ldata.get("abbr") or "?"
+        all_names_ru[lid] = ldata.get("name_ru", lid)
 
     asc = houses.get("asc")
     if not asc:
@@ -461,7 +480,7 @@ def build_natal_chart_svg(
         tx1, ty1 = _screen_point(cx, cy, r_outer, abs_pos, asc_abs_pos)
         tx2, ty2 = _screen_point(cx, cy, r_tick_outer, abs_pos, asc_abs_pos)
 
-        aspect_lines = _aspect_lines_for_point(house_key, aspects)
+        aspect_lines = _aspect_lines_for_point(house_key, aspects, all_names_ru)
         tooltip_text = "\n".join(
             [f"{HOUSE_ROMAN[i]} дом: {_fmt_dms_plain(h['position'], h['sign'])}"] + aspect_lines
         )
@@ -498,7 +517,7 @@ def build_natal_chart_svg(
             continue
         lx, ly = _screen_point(cx, cy, r_angle_label, a["abs_pos"], asc_abs_pos)
         angle_screen[key] = _screen_point(cx, cy, r_house_ring_inner, a["abs_pos"], asc_abs_pos)
-        aspect_lines = _aspect_lines_for_point(key, aspects)
+        aspect_lines = _aspect_lines_for_point(key, aspects, all_names_ru)
         tooltip_text = "\n".join(
             [f"{ANGLE_LABELS[key]}: {_fmt_dms_plain(a['position'], a['sign'])}"] + aspect_lines
         )
@@ -524,15 +543,16 @@ def build_natal_chart_svg(
 
     svg.append(f'<circle cx="{cx}" cy="{cy}" r="18" fill="none" stroke="#3a3a8a" stroke-width="1.5"/>')
 
-    # ---- planet placement ----
+    # ---- planet + Lot placement ----
     planet_screen: Dict[str, Tuple[float, float]] = {}
-    ordered = sorted(
-        ((pid, planets[pid]) for pid in CHART_POINTS if pid in planets),
-        key=lambda kv: kv[1]["abs_pos"],
+    combined_points = (
+        [(pid, planets[pid], "planet") for pid in CHART_POINTS if pid in planets]
+        + [(lid, lots[lid], "lot") for lid in lot_ids]
     )
+    ordered = sorted(combined_points, key=lambda kv: kv[1]["abs_pos"])
     prev_abs = None
     alt_band = False
-    for pid, pdata in ordered:
+    for pid, pdata, kind in ordered:
         abs_pos = pdata["abs_pos"]
         if prev_abs is not None:
             gap = min((abs_pos - prev_abs) % 360, (prev_abs - abs_pos) % 360)
@@ -544,23 +564,36 @@ def build_natal_chart_svg(
         tick_x2, tick_y2 = _screen_point(cx, cy, r_sign_inner, abs_pos, asc_abs_pos)
         px, py = _screen_point(cx, cy, radius, abs_pos, asc_abs_pos)
         planet_screen[pid] = (px, py)
-        glyph = PLANET_GLYPHS.get(pid, "?")
+        glyph = all_glyphs.get(pid, "?")
+        # A Lot's abbreviation can be 2+ characters (Part of Fortune's own
+        # glyph is one character, but most future Lots won't have a
+        # dedicated glyph - see engine/lots.py) - shrink the font so it
+        # still fits inside the same visual footprint as a single-glyph
+        # planet symbol, rather than overflowing into its neighbors.
+        glyph_font_size = 20 if len(glyph) <= 1 else 12
 
-        house_num = _house_number(pdata.get("house"))
+        # House placement: kerykeion gives planets a string like
+        # "Fifth_House" (parsed by _house_number); a Lot's house is
+        # already a plain int (engine.houses.house_number_for_longitude,
+        # since a Lot isn't one of kerykeion's own objects).
+        if kind == "planet":
+            house_num = _house_number(pdata.get("house"))
+        else:
+            house_num = pdata.get("house")
         house_roman = HOUSE_ROMAN[house_num - 1] if house_num else "?"
         tooltip_lines = [
-            f"{PLANET_NAMES_RU.get(pid, pid)} {_fmt_dms_plain(pdata['position'], pdata['sign'])}, {house_roman}"
+            f"{all_names_ru.get(pid, pid)} {_fmt_dms_plain(pdata['position'], pdata['sign'])}, {house_roman}"
         ]
-        tooltip_lines.extend(_aspect_lines_for_point(pid, aspects))
+        tooltip_lines.extend(_aspect_lines_for_point(pid, aspects, all_names_ru))
         tooltip = _title("\n".join(tooltip_lines))
 
         # Tick line is purely decorative and drawn WITHOUT a tooltip - two
-        # near-conjunct planets' ticks run almost on top of each other
+        # near-conjunct points' ticks run almost on top of each other
         # (same angle, only the radius differs), so a tooltip attached to
-        # the tick was effectively unreachable for whichever planet got
+        # the tick was effectively unreachable for whichever point got
         # drawn first (the later one's tick visually/hit-area covers it).
         # The tooltip now sits on the glyph text alone - "exactly on the
-        # planet's symbol", per the brief - which stays a small, precise,
+        # symbol", per the brief - which stays a small, precise,
         # non-overlapping target even for a near-exact conjunction.
         svg.append(
             f'<line x1="{tick_x1:.1f}" y1="{tick_y1:.1f}" x2="{tick_x2:.1f}" y2="{tick_y2:.1f}" '
@@ -568,16 +601,23 @@ def build_natal_chart_svg(
         )
         glyph_group = [
             tooltip,
-            f'<text x="{px:.1f}" y="{py:.1f}" font-size="20" text-anchor="middle" '
+            f'<text x="{px:.1f}" y="{py:.1f}" font-size="{glyph_font_size}" text-anchor="middle" '
             f'dominant-baseline="central" fill="#000">{glyph}</text>',
         ]
-        if pdata.get("retrograde"):
+        # Planets: kerykeion's own retrograde flag. Lots: no such field
+        # exists (a Lot isn't an orbiting body) - but a negative computed
+        # speed means the SAME thing visually (moving backward through
+        # the zodiac at that moment), see engine/lots.py's docstring.
+        is_retro = pdata.get("retrograde") if kind == "planet" else (
+            pdata.get("speed") is not None and pdata["speed"] < 0
+        )
+        if is_retro:
             glyph_group.append(f'<text x="{px + 11:.1f}" y="{py - 9:.1f}" font-size="9" fill="#a03030">R</text>')
         svg.append(f'<g>{"".join(glyph_group)}</g>')
 
-    # ---- aspect chords: planet-planet, and planet-angle - MAJOR aspects
-    # only (see MAJOR_ASPECTS) to keep the wheel itself readable; minors
-    # still show in the aspect table and in tooltips.
+    # ---- aspect chords: planet/Lot-planet/Lot, and planet/Lot-angle -
+    # MAJOR aspects only (see MAJOR_ASPECTS) to keep the wheel itself
+    # readable; minors still show in the aspect table and in tooltips.
     # (plain house-cusp aspects, i.e. to houses 2/3/5/6/8/9/11/12, are
     # listed in that cusp's tooltip but NOT drawn as a chord - only the 4
     # angles get a drawn line, per the brief.)
@@ -600,8 +640,8 @@ def build_natal_chart_svg(
         dash_attr = f' stroke-dasharray="{dash}"' if dash else ""
         asp_name = ASPECT_NAMES_RU.get(asp.get("aspect_deg"), "")
         mark = CONVERGENCE_MARK.get(asp.get("status"), "")
-        name_a = PLANET_NAMES_RU.get(pa, ANGLE_LABELS.get(pa, pa))
-        name_b = PLANET_NAMES_RU.get(pb, ANGLE_LABELS.get(pb, pb))
+        name_a = all_names_ru.get(pa, ANGLE_LABELS.get(pa, pa))
+        name_b = all_names_ru.get(pb, ANGLE_LABELS.get(pb, pb))
         tooltip = _title(
             f"{name_a} {asp_name} {name_b} (орбис {asp.get('exact_orb', 0):.2f}\u00b0) {mark}".strip()
         )
@@ -657,7 +697,7 @@ def build_natal_chart_svg(
         pdata = planets.get(pid)
         if not pdata:
             continue
-        glyph = PLANET_GLYPHS.get(pid, "?")
+        glyph = all_glyphs.get(pid, "?")
         dignity = _dignity_letter(pid, pdata["sign"])
         star_note = ""
         for conj in conjunctions:
@@ -679,6 +719,18 @@ def build_natal_chart_svg(
                             False, "", "", ly)
         ly += 22
 
+    if lots:
+        ly += 8
+        svg.append(f'<text x="{col_glyph_x}" y="{ly}" font-size="14" font-weight="bold" fill="#111">Парсы</text>')
+        ly += 22
+        for lid in lot_ids:
+            ldata = lots[lid]
+            glyph = all_glyphs.get(lid, "?")
+            is_retro = ldata.get("speed") is not None and ldata["speed"] < 0
+            _draw_position_row(col_glyph_x, glyph, ldata["position"], ldata["sign"],
+                                is_retro, "", "", ly)
+            ly += 22
+
     # ==================== aspect table: shrinking staircase ====================
     # Row i (for the (i+1)-th chart point, i=1..n-1) has exactly i cells -
     # one per EARLIER point (j=0..i-1) - instead of a half-empty n x n
@@ -689,8 +741,9 @@ def build_natal_chart_svg(
     # the project owner asked for ("planets along the bottom and left").
     table_top = 860
     cell = 34
-    label_col_w = 30
-    present = [pid for pid in CHART_POINTS if pid in planets]
+    label_col_w = 38  # widened slightly - a Lot's 2-letter abbreviation
+                      # needs more room than a single-glyph planet symbol
+    present = [pid for pid in CHART_POINTS if pid in planets] + lot_ids
     n = len(present)
     aspect_lookup: Dict[frozenset, Dict[str, Any]] = {}
     for asp in aspects:
@@ -707,9 +760,11 @@ def build_natal_chart_svg(
 
     for i in range(1, n):
         row_y = grid_y0 + (i - 1) * cell
+        row_glyph = all_glyphs.get(present[i], "?")
+        row_font = 15 if len(row_glyph) <= 1 else 10
         svg.append(
-            f'<text x="{grid_x0 - 8}" y="{row_y + cell / 2:.1f}" font-size="15" text-anchor="end" '
-            f'dominant-baseline="central" fill="#000">{PLANET_GLYPHS.get(present[i], "?")}</text>'
+            f'<text x="{grid_x0 - 8}" y="{row_y + cell / 2:.1f}" font-size="{row_font}" text-anchor="end" '
+            f'dominant-baseline="central" fill="#000">{row_glyph}</text>'
         )
         for j in range(0, i):
             cx0 = grid_x0 + j * cell
@@ -750,9 +805,11 @@ def build_natal_chart_svg(
     bottom_y = grid_y0 + (n - 2) * cell + cell + 16
     for j in range(0, n - 1):
         gx = grid_x0 + j * cell + cell / 2
+        col_glyph = all_glyphs.get(present[j], "?")
+        col_font = 15 if len(col_glyph) <= 1 else 10
         svg.append(
-            f'<text x="{gx:.1f}" y="{bottom_y}" font-size="15" text-anchor="middle" '
-            f'fill="#000">{PLANET_GLYPHS.get(present[j], "?")}</text>'
+            f'<text x="{gx:.1f}" y="{bottom_y}" font-size="{col_font}" text-anchor="middle" '
+            f'fill="#000">{col_glyph}</text>'
         )
 
     legend_y = bottom_y + 24
