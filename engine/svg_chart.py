@@ -344,7 +344,7 @@ def build_natal_chart_svg(
     asc_abs_pos = asc["abs_pos"]
 
     # ---- canvas layout ----
-    width, height = 1150, 1400
+    width, height = 1200, 1400
     cx, cy = 480, 500
     r_outer = 340
     r_sign_inner = 300
@@ -665,11 +665,14 @@ def build_natal_chart_svg(
         svg.append(f'<g>{"".join(chord_group)}</g>')
 
     # ==================== side planet list (column-aligned) ====================
-    col_glyph_x = 860
-    col_deg_x = 908       # right-aligned degree number
-    col_glyph2_x = 912    # sign glyph, fixed start
-    col_min_x = 936       # minutes, fixed start
-    col_extra_x = 1010
+    col_glyph_x = 905     # shifted right from 860 - was overlapping the
+                          # angle labels (Asc/MC/Dsc/IC sit as far out as
+                          # r_outer+58, whose right edge lands right around
+                          # x=878 at this canvas's cx=480)
+    col_deg_x = 953       # right-aligned degree number
+    col_glyph2_x = 957    # sign glyph, fixed start
+    col_min_x = 981       # minutes, fixed start
+    col_extra_x = 1055
     ly = 60
     svg.append(f'<text x="{col_glyph_x}" y="{ly}" font-size="14" font-weight="bold" fill="#111">Планеты</text>')
     ly += 22
@@ -731,14 +734,14 @@ def build_natal_chart_svg(
                                 is_retro, "", "", ly)
             ly += 22
 
-    # ==================== aspect table: shrinking staircase ====================
-    # Row i (for the (i+1)-th chart point, i=1..n-1) has exactly i cells -
-    # one per EARLIER point (j=0..i-1) - instead of a half-empty n x n
-    # square. Column headers sit along the BOTTOM (under the widest, last
-    # row) instead of a separate top row; row headers stay on the left.
-    # This needs one fewer row/column of header space than the previous
-    # square-grid version, and reads left-to-right/top-to-bottom the way
-    # the project owner asked for ("planets along the bottom and left").
+    # ==================== aspect table: full staircase (both axes show
+    # the SAME complete point list, not one axis missing its first entry
+    # and the other missing its last - a strict "row 1..n-1 / column
+    # 0..n-2" staircase is mathematically complete (every pair shown
+    # exactly once) but reads as if the first/last point were dropped
+    # from one axis; row 0 and column n-1 are simply empty here (nothing
+    # to compare them against within their own edge) rather than omitted
+    # from the labels entirely. ====================
     table_top = 860
     cell = 34
     label_col_w = 38  # widened slightly - a Lot's 2-letter abbreviation
@@ -758,8 +761,8 @@ def build_natal_chart_svg(
     grid_x0 = 24 + label_col_w
     grid_y0 = table_top
 
-    for i in range(1, n):
-        row_y = grid_y0 + (i - 1) * cell
+    for i in range(0, n):
+        row_y = grid_y0 + i * cell
         row_glyph = all_glyphs.get(present[i], "?")
         row_font = 15 if len(row_glyph) <= 1 else 10
         svg.append(
@@ -802,8 +805,8 @@ def build_natal_chart_svg(
                 f'text-anchor="middle" fill="#555" font-weight="{weight}">{asp.get("exact_orb", 0):.1f}\u00b0</text>'
             )
 
-    bottom_y = grid_y0 + (n - 2) * cell + cell + 16
-    for j in range(0, n - 1):
+    bottom_y = grid_y0 + n * cell + 16
+    for j in range(0, n):
         gx = grid_x0 + j * cell + cell / 2
         col_glyph = all_glyphs.get(present[j], "?")
         col_font = 15 if len(col_glyph) <= 1 else 10
