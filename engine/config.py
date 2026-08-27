@@ -91,3 +91,23 @@ DEFAULT_SCAN_ORB_THRESHOLD = _get_float("ASTROMCP_SCAN_ORB_THRESHOLD", 1.5)
 # result to the server console/journal (in addition to the MCP response),
 # so an operator watching the logs can see what's happening at a glance.
 CONSOLE_RESULT_PREVIEW = _get_bool("ASTROMCP_CONSOLE_RESULT_PREVIEW", True)
+
+# --- /astro/chart.svg photo embedding (engine/photo_fetch.py) ---
+# See that module's docstring for why this fetch happens server-side at
+# all (short version: an SVG loaded via <img> can't load its OWN external
+# resources - a browser security restriction, not something fixable in
+# the SVG itself - so the photo has to be inlined as a data: URI before
+# the SVG ever reaches the browser).
+#
+# Empty by default - FAILS CLOSED. A publicly reachable /astro/chart.svg
+# that fetched any URL a caller handed it would be a textbook SSRF
+# surface (make our server request arbitrary internal/external URLs on
+# the caller's behalf). Set this to your wiki's own file-serving host(s)
+# before photo_url will do anything - e.g.:
+#   ASTROMCP_PHOTO_ALLOWED_PREFIXES=https://sociowiki.sphynkx.org.ua/
+# Comma-separated for more than one prefix.
+PHOTO_ALLOWED_PREFIXES = [
+    p.strip() for p in _get_str("ASTROMCP_PHOTO_ALLOWED_PREFIXES", "").split(",") if p.strip()
+]
+PHOTO_FETCH_TIMEOUT_SECONDS = _get_float("ASTROMCP_PHOTO_FETCH_TIMEOUT_SECONDS", 4.0)
+PHOTO_FETCH_MAX_BYTES = _get_int("ASTROMCP_PHOTO_FETCH_MAX_BYTES", 3 * 1024 * 1024)  # 3 MB

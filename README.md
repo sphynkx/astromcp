@@ -68,8 +68,10 @@ an MCP connector (streamable-http transport), not fetched as a plain URL.
         ├── fixed_stars.py      # fixed-star positions via pyswisseph, used only by
         │                       # public_api.py - not used by any rectification tool
         ├── public_api.py       # builds the flat JSON for the /astro REST endpoint
-        └── svg_chart.py        # builds the SVG for /astro/chart.svg - see that
-                                 # endpoint's README section for design notes
+        ├── svg_chart.py        # builds the SVG for /astro/chart.svg - see that
+        │                        # endpoint's README section for design notes
+        └── photo_fetch.py      # fetches+inlines the optional chart-header photo as
+                                 # a data: URI - see the README's "Photo embedding" note
 
 `app.py` deliberately contains no astrological logic - it only registers
 MCP tools and delegates to `engine/tools.py`. This keeps the transport layer
@@ -188,17 +190,85 @@ body, and nothing is written to disk on the server.
 
 Colors and layout were built from a ZET9 screenshot the project owner
 supplied as a loose visual reference, **not** a pixel-exact
-reproduction (their own framing of the brief) - sign-wedge hues, the
-hard/soft aspect color split, and the general header/wheel/list/table
-layout follow that reference; exact pixel colors, per-planet aspect-count
-balance bars, and ZET9's own (much larger) fixed-star catalog were
-deliberately not chased. Untested against a real browser/MediaWiki
-render in the session that wrote it (no network access to rasterize
-locally) - the SVG was checked for structural validity (finite
-coordinates, correct arc sweep directions, compiles/runs without
-exceptions against synthetic data shaped like a real `/astro` response)
-but not eyeballed rendered - render one real chart after deploying and
-compare against expectations before relying on it.
+reproduction (their own framing of the brief) - sign-wedge hues (an
+exact hand-picked hex table, `SIGN_COLORS` in `engine/svg_chart.py`, kept
+separate from the drawing code specifically so it's easy to retune), a
+thin house ring (matching the sign ring's own width, rather than
+reaching toward center - planets sit right at its inner edge) with
+planets placed inside it, Ascendant/MC markers, the hard/soft aspect
+color split on the wheel's own aspect chords, essential-dignity letters
+next to each planet in the side list (`PLANET_DIGNITY` - a popular modern
+convention that also assigns dignities to Uranus/Neptune/Pluto, not the
+strict 7-planet classical system, exactly as specified), and the general
+header/wheel/list/table layout follow that reference; exact ZET9 pixel
+colors (beyond the explicitly-specified sign hexes), per-planet
+aspect-count balance bars, and ZET9's own (much larger) fixed-star
+catalog were deliberately not chased.
+
+Every planet, house cusp/angle, and aspect chord carries a native SVG
+`<title>` element (position/house, and any aspects to that point,
+including the applying/separating mark), so hovering it in a browser
+shows a tooltip - modeled on a ZET9 screenshot of exactly this hover
+behavior. The aspect TABLE (as opposed to the wheel's own chords) colors
+each aspect by applying vs. separating ("сходящиеся"/"расходящиеся" -
+pink vs. light blue) rather than hard/soft, since the harmonious/tense
+split is already visible in the glyph itself; it's laid out as a
+shrinking staircase (row *i* has *i* cells, column headers along the
+bottom) rather than a half-empty square, which needs one fewer row/
+column of header space. Chords are drawn for planet-planet aspects and
+for planet-to-**angle** aspects (Asc/MC/Dsc/IC); aspects to the other 8
+house cusps aren't drawn as chords (that would clutter the wheel fast)
+but do show up in that cusp's own tooltip. House sectors are colored
+per `HOUSE_COLORS` in `engine/svg_chart.py` - a table like `SIGN_COLORS`,
+currently all 12 entries the same flat hex, kept separate from the
+drawing code specifically so a future cardinal/succedent/cadent scheme
+is a table edit, not a code change.
+
+**Photo embedding is more involved than it looks**, because of a real
+browser restriction worth understanding before debugging it further: an
+SVG loaded as the source of an HTML `<img>` (exactly how the Lua module
+embeds this chart) runs in a restricted context that is **not allowed to
+load its own external resources** - so a plain `<image href="https://
+external-host/photo.jpg">` inside the SVG silently never loads, even
+though navigating to the same SVG URL directly in a browser tab loads it
+fine (this is exactly the "opens in a new tab but not from inside the
+picture" symptom). There's no fix on the SVG-authoring side for this -
+it's deliberate. The fix is `engine/photo_fetch.py`: the server fetches
+the photo itself and inlines it as a `data:` URI (not an external
+resource, so the restriction doesn't apply) before the SVG is ever sent
+to the browser. This is why `/astro/chart.svg`'s `photo_url` param now
+only accepts URLs matching `ASTROMCP_PHOTO_ALLOWED_PREFIXES` (empty by
+default - fails closed) - a publicly reachable endpoint that fetches any
+URL a caller hands it is a textbook SSRF surface, so set this to your own
+wiki's file-serving host before photos will render (see `.env.example`).
+
+On the MediaWiki side, `resolveFileUrl` (in the Lua module) tries three
+things in order: (1) `computeHashedFileUrl` - computes the direct file
+path from MediaWiki's own default hashed-upload-directory scheme
+(`mw.hash.hashValue('md5', filename)`, first/first-two hex chars as the
+subdirectory) - deterministic, no live-wiki dependency, and confirmed
+against a real working URL by the project owner (`md5sum` in a shell
+matched the actual path); (2) the Scribunto File object's direct URL
+(`title.file:getUrl()`/`canonicalUrl`, wrapped in `pcall` since the exact
+method available varies by Scribunto version); (3) the `Special:FilePath`
+redirect. `WIKI_UPLOAD_PATH` (top of the module) holds the upload
+directory name - `/images_sociowiki` for sociowiki.sphynkx.org.ua,
+adjust if you copy this module to a wiki with a different
+`$wgUploadPath`. Whichever of the three resolves is still only the
+*source* URL handed to `photo_url` - it still goes through the
+server-side fetch-and-inline step above, computing the "real" direct path
+doesn't bypass that requirement (see the note above on why).
+
+Untested against a real browser/MediaWiki render in the session that
+wrote it (no network access to rasterize locally, and no live wiki to
+confirm the exact Scribunto File-object method names or the photo fetch
+against) - the SVG was checked for structural validity (finite
+coordinates within the canvas, correct arc sweep directions including
+the now-variable-width house sectors, compiles/runs without exceptions
+against synthetic data shaped like a real `/astro` response) but not
+eyeballed rendered - render one real chart after deploying and compare
+against expectations before relying on it.
+expectations before relying on it.
 
 Errors return a small SVG containing the error text (with the correct
 HTTP status code) rather than JSON - an `<img>`/external-image consumer
@@ -226,17 +296,31 @@ needed is to allow-list the astromcp host:
 
     $edgAllowExternalDataFrom = array( 'http://192.168.7.3:8765/' );
 
-For `p.wheel()` (the SVG chart), MediaWiki also needs permission to
-render an external URL as an `<img>` - its Sanitizer strips raw `<svg>`
-markup from wikitext/module output outright, so an allow-listed external
-image is the only working path without a JS gadget:
+For `p.wheel()` (the SVG chart), MediaWiki also needs permission to render
+an `<img>` tag - its Sanitizer strips raw `<img>` from wikitext/module
+output by default:
 
-    $wgAllowExternalImages = false;
-    $wgAllowExternalImagesFrom = array( 'http://192.168.7.3:8765/' );
+    $wgAllowImageTag = true;
 
-(`$wgAllowExternalImages = false` plus the `...From` allow-list scopes
-this to just the astromcp host, rather than opening external images from
-anywhere.)
+This is a narrow, purpose-built flag (unlike `$wgRawHtml`, it permits only
+the `<img>` tag, nothing else) and - importantly - side-steps a real
+MediaWiki core limitation: the alternative approach (a bare, unbracketed
+external-image URL, auto-embedded via `$wgAllowExternalImages`/
+`$wgAllowExternalImagesFrom`) depends on MediaWiki's own
+`EXT_IMAGE_REGEX` recognizing `.svg` as an image extension, which
+historically it did **not** by default (only `gif|png|jpg|jpeg` - see
+[phabricator T65806](https://phabricator.wikimedia.org/T65806); some
+installs needed a core patch to add `svg`). Whether your specific version
+has that fixed is not something to gamble on, so `p.wheel()` returns a
+literal `<img src="...">` tag and relies on `$wgAllowImageTag` instead,
+which has no such extension dependency.
+
+(If `$wgAllowImageTag` isn't an option on your install for some reason,
+the bare-URL external-image path is still worth trying as a fallback -
+`$wgAllowExternalImages = false; $wgAllowExternalImagesFrom = array('http://192.168.7.3:8765/');`
+plus a template call with **no** manual `[...]` brackets around the
+`{{#invoke:...}}` - but test it, since the `.svg`-recognition caveat
+above applies.)
 
 ### Installing the module
 
@@ -246,23 +330,26 @@ Create the wiki page `Module:Astrodata` and paste in the contents of
 ### Calling it from a template
 
 The module reads `date`/`time`/`lat`/`lon`/`city`/`country`/`houses`/
-`name`/`place` from its own direct args and/or its parent frame's args
-(so both `{{#invoke:Astrodata|chart|date=...}}` and a template calling
-`{{#invoke:...}}` with already-named parameters work). Missing
+`name`/`place`/`photo` from its own direct args and/or its parent frame's
+args (so both `{{#invoke:Astrodata|planetslist|date=...}}` and a template
+calling `{{#invoke:...}}` with already-named parameters work). Missing
 `date`, or missing both coordinates and a city, makes every function
 silently return `""` - no error text on the page, per the original
-design brief - so a template can call all four functions unconditionally
+design brief - so a template can call all five functions unconditionally
 without an `{{#if:}}` guard.
 
-    {{#invoke:Astrodata|chart
+    {{#invoke:Astrodata|planetslist
       |date={{{Дата рождения}}} |time={{{Время рождения}}}
       |lat={{{Широта рождения}}} |lon={{{Долгота рождения}}}
       |city={{{Город рождения}}} |country={{{Страна рождения}}}
     }}
 
+    {{#invoke:Astrodata|aspectslist | ... same params ... }}
+
     {{#invoke:Astrodata|categories | ... same params ... }}
 
-    {{#invoke:Astrodata|wheel | ... same params ..., optionally |name=... |place=... }}
+    {{#invoke:Astrodata|wheel | ... same params ...,
+      optionally |name=... |place=... |photo={{{Изображение}}} }}
 
     {{#invoke:Astrodata|deathCategories|date={{{Дата смерти}}}}}
 
@@ -272,10 +359,25 @@ passing them straight from wikitext fields is fine. `lat`/`lon` must be
 them (this has happened once already) will silently geocode the wrong
 point whenever a page has explicit coordinates and no `city` fallback.
 
+`planetslist`/`aspectslist` render each point/aspect with its Unicode
+glyph rather than a spelled-out name - `planetslist` also shows an
+essential-dignity letter (domicile/exaltation/detriment/fall - see
+`PLANET_DIGNITY` in the module) between the glyph and the position, and
+`aspectslist` bolds aspects tighter than 1 degree.
+
 `p.wheel()` names the downloadable file from the current page title
 (`Натал_<Заголовок,_с_подчёркиваниями>.svg`) - MediaWiki's standard
 "Фамилия, Имя Отчество" biography title convention maps onto this
-directly, no extra template parameter needed.
+directly, no extra template parameter needed. `photo` should be a
+filename already uploaded to the wiki, without the leading `Файл:`/`File:`
+(exactly what a `{{{Изображение}}}` template parameter typically holds) -
+resolved via `Special:FilePath`, with `Unknown-person.png` as a fallback
+if that specific file doesn't exist and isn't itself missing. It returns
+a clickable image (wrapped in a link to the same SVG, so a reader can
+open it full-size out of a cramped infobox) - call it bare, with **no**
+manual `[...]` or `[[...]]` wrapping around the `{{#invoke:...}}`
+(wrapping it produces broken nested-bracket wikitext, since the module's
+own output already has its own bracket structure).
 
 ### How the LLM client learns the methodology
 

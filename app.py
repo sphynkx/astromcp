@@ -25,6 +25,7 @@ from engine import config
 from engine import tools
 from engine import public_api
 from engine import svg_chart
+from engine import photo_fetch
 from engine.geocode import GeocodeError
 
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL, logging.INFO))
@@ -674,6 +675,7 @@ ASTRO_HELP_DOC = {
             "Content-Disposition header (e.g. from a MediaWiki page title) "
             "- affects what a browser's 'save as' proposes, not the image itself"
         ),
+        "photo_url": "SVG endpoint only - absolute URL to a portrait image, drawn in the chart header if given",
     },
     "examples": [
         "GET /astro?date=23.11.1993&time=14:30&lat=50.45&lon=30.52",
@@ -821,14 +823,16 @@ async def astro_chart_svg(request: Request) -> Response:
         report = public_api.build_full_report(
             **params,
             include_aspects=True,
-            include_house_cusp_aspects=False,
+            include_house_cusp_aspects=True,
             include_fixed_stars=True,
             include_arabic_parts=False,
         )
+        photo_data_uri = photo_fetch.fetch_photo_as_data_uri(q.get("photo_url"))
         svg_text = svg_chart.build_natal_chart_svg(
             report,
             person_name=q.get("name"),
             place_label=q.get("place"),
+            photo_url=photo_data_uri,
         )
         headers = {}
         filename = q.get("filename")
