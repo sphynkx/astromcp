@@ -334,13 +334,13 @@ def build_natal_chart_svg(
     r_planet_alt = 220  # widened from 232 - 18px wasn't reliably clearing
                         # a near-exact conjunction's glyph bounding boxes
     # House cusp lines used to run all the way from near-center out to the
-    # ring - a short INNER stub instead (mirroring the short OUTER stub
-    # near the numeral), stopping well short of the center, keeps the
-    # middle of the wheel clear for the aspect chords that cross it -
-    # those were getting visually tangled with the long cusp lines,
-    # especially oppositions passing near center.
-    r_house_line_inner_start = 22
-    r_house_line_inner_end = 50
+    # ring, which visually tangled with aspect chords crossing near the
+    # center (especially oppositions). Fixed as a short stub hanging INWARD
+    # off the house ring's own inner edge - mirrors the short OUTER stub
+    # near the numeral (which hangs outward off the ring's outer edge) -
+    # rather than a separate stub floating near the center circle.
+    r_house_line_inner_start = r_house_ring_inner - 28
+    r_house_line_inner_end = r_house_ring_inner
     r_tick_outer = r_outer + 16
     r_numeral = r_outer + 34
     r_angle_label = r_outer + 58
