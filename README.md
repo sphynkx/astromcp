@@ -29,6 +29,15 @@ to a Swiss Ephemeris calculation, not to the model's training data.
 The service exposes tools, not a REST API - it must be added to Claude as
 an MCP connector (streamable-http transport), not fetched as a plain URL.
 
+Separately, `/astro` and `/astro/chart.svg` (the same `app.py`, same
+port) are also reachable as a plain REST endpoint for the MediaWiki
+integration (see below) - via a **second, independent** nginx proxy
+block, this one on the wiki's own server, forwarding `/astro` on the
+wiki's own domain straight to this backend. Two different reverse
+proxies, two different domains, same backend port - don't confuse the
+nginx config for astromcp's own public MCP domain (above) with the
+wiki-side proxy block documented in the MediaWiki section below.
+
 ## Project structure
 
     astromcp/
@@ -331,9 +340,42 @@ it.
 
 External Data has no "named data source" indirection for Lua calls - the
 URL is always given directly in code, so the only real configuration
-needed is to allow-list the astromcp host:
+needed is to allow-list wherever `BASE_URL` in the module actually
+resolves to.
 
-    $edgAllowExternalDataFrom = array( 'http://192.168.7.3:8765/' );
+**As of this round, `BASE_URL` is `mw.site.server .. "/astro"` - the
+wiki's own domain, not the astromcp backend's address directly.** This
+depends on the wiki's own nginx reverse-proxying `/astro` straight
+through to the astromcp backend, e.g.:
+
+    location /astro {
+        proxy_pass http://192.168.7.3:8765;
+    }
+
+(this block goes in the **wiki's** nginx config, not astromcp's own -
+see the "Deployment" section below for astromcp's own nginx config,
+which is a separate, unrelated reverse proxy for astromcp's public
+domain). With this in place, `getExternalData` calls made by the wiki's
+own PHP (External Data fetches happen server-side, not in the visitor's
+browser) go out to the wiki's public domain and come back in via this
+proxy block - so the allow-list entry needs to match that domain, not
+the backend's internal address:
+
+    $edgAllowExternalDataFrom = array( 'https://sociowiki.sphynkx.org.ua/' );
+
+The previous round hardcoded the backend's internal IP directly
+(`192.168.7.3:8765`), bypassing the wiki's own nginx entirely - this
+was slightly more direct (one less proxy hop) but meant `BASE_URL`
+had to be edited by hand for every wiki/environment this module gets
+copied to, and the allow-list above had to reference the internal
+address specifically, which reads confusingly next to a
+publicly-facing wiki config. Deriving it from `mw.site.server` instead
+removes that hardcoding - the module now works unmodified on a
+staging copy of the wiki, a domain rename, etc. If the wiki server
+can't resolve its own public domain back to something local (so this
+round-trips out to the internet and back rather than staying
+internal), reverting `BASE_URL` to a literal internal IP is a one-line
+change back - see the comment directly above `BASE_URL` in the module.
 
 For `p.wheel()` (the SVG chart), MediaWiki also needs permission to render
 an `<img>` tag - its Sanitizer strips raw `<img>` from wikitext/module
@@ -356,7 +398,7 @@ which has no such extension dependency.
 
 (If `$wgAllowImageTag` isn't an option on your install for some reason,
 the bare-URL external-image path is still worth trying as a fallback -
-`$wgAllowExternalImages = false; $wgAllowExternalImagesFrom = array('http://192.168.7.3:8765/');`
+`$wgAllowExternalImages = false; $wgAllowExternalImagesFrom = array('https://sociowiki.sphynkx.org.ua/');`
 plus a template call with **no** manual `[...]` brackets around the
 `{{#invoke:...}}` - but test it, since the `.svg`-recognition caveat
 above applies.)
