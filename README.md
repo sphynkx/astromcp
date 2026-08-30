@@ -45,7 +45,8 @@ wiki-side proxy block documented in the MediaWiki section below.
     ├── README.md
     ├── help_texts/             # LLM-facing methodology guides, read via the help() tool
     │   ├── overview.md
-    │   └── rectification.md
+    │   ├── rectification.md
+    │   └── horary.md
     ├── install/
     │   ├── requirements.txt
     │   ├── astromcp.service    # systemd unit
@@ -76,6 +77,10 @@ wiki-side proxy block documented in the MediaWiki section below.
         ├── houses.py           # house ruler/co-ruler/occupant lookups, and
         │                       # house_number_for_longitude (used by lots.py for
         │                       # points that aren't one of kerykeion's own objects)
+        ├── horary.py           # horary chart judgment: radicality, significators,
+        │                       # dignity, reception, void-of-course Moon, translation/
+        │                       # collection of light, prohibition/frustration/
+        │                       # refranation, verdict - see help_texts/horary.md
         ├── jobs.py             # in-memory async job registry for long scans
         ├── help.py             # reads help_texts/*.md on demand
         ├── tools.py            # MCP tool implementations (no MCP dependency itself)
@@ -107,6 +112,11 @@ modified, or reused independently.
 | `rectif_scan_start` / `rectif_scan_result` | Async version of rectif_scan (submit + poll) - use for large scans or `technique="solar_return"`, which can otherwise exceed MCP/proxy timeouts |
 | `rectif_trutina` | Trutine of Hermes: fast, direct classical rectification via the conception (epoch) chart - needs no life events at all |
 | `rectif_movements_scan` | Grishchenyuk's literal "3 movements" criterion (>=2 of 3 concordant) - returns qualifying times, not scores |
+| `rectif_timoshenko_scan` | Timoshenko's 4-condition bidirectional aspect test (ruler+cusp each send AND receive) - returns qualifying times |
+| `rectif_bonatti_scan` | Bonatti's method, reproduced literally - a weak auxiliary check per the source's own framing, not a primary technique |
+| `rectif_herich_scan` | Herich's number (Paul von Gerich) - a weak auxiliary check, the source's own author acknowledges up to 8deg uncertainty |
+| `rectif_degree_clustering` | Brady's graphic/Israitel's condensation method - histograms transiting-degree hits across many events, converts top peaks to candidate times |
+| `horary_chart` | Builds and judges a horary chart (a question asked at a specific moment/place) - radicality, significators, dignity, reception, void-of-course Moon, translation/collection of light, prohibition/frustration/refranation, Yes/No verdict. See `help("horary")` |
 | `help` | Reads a methodology/usage guide from `help_texts/*.md` - see below |
 | `ping` | Connectivity test |
 
@@ -523,6 +533,50 @@ relying on them being re-explained every time.
   events × (natal + technique)`. A 2-hour range at 1-minute resolution
   with 20 events is on the order of 2,400 chart builds - typically tens
   of seconds, well within the timeout configured in the reverse proxy.
+
+## Horary astrology: `horary_chart`
+
+A horary chart answers one Yes/No question, judged from the chart cast
+for the moment/place the question was asked (or received - see
+`help("horary")` for phone/online/written-question conventions) - a
+different discipline from natal work, with its own significator/
+dignity/aspect rules. See `help_texts/horary.md` for the full
+methodology (adapted from a synthesis of Masenkov's textbook, Frawley's
+precise prohibition/frustration/refranation definitions, and Lavoie's
+position on judging non-radical charts - see BIBLIOGRAPHY.md) and
+`TECHNIQUE_STATUS.md` for exactly what's implemented.
+
+The tool computes everything deterministically - radicality, both
+significators (with essential + accidental dignity broken into
+individually-listed factors, not just a strong/weak label), mutual
+reception, void-of-course Moon, translation/collection of light,
+perfection-interruption, and a final Yes/No - the same "explain the
+already-computed verdict, don't re-derive it" contract `rectif_*`
+already uses for rectification. Call `help("horary")` before using this
+tool's output.
+
+Two ways to specify what the question is about:
+
+    # direct: the question is about the querent (or has an obvious house)
+    horary_chart(..., quesited_house=7)  # "will I get married?"
+
+    # derived: the question is about a THIRD PARTY
+    horary_chart(..., derived_house_chain=[6, 3],
+                 derived_house_labels=["brother", "dog"])
+    # "will my brother's dog be found?" - 6th (a pet) from the 3rd
+    # (a sibling) = house VIII; the tool resolves and returns this
+    # itself, per the methodology's own requirement not to hand-derive it
+
+House system defaults to Placidus (`"P"`) here specifically -
+independent of `ASTROMCP_HOUSE_SYSTEM`, which is tuned for
+rectification - since Placidus (not Koch) is horary's own conventional
+default; Regiomontanus (`"R"`) is the classical Lilly-era alternative.
+
+Part of Fortune and the Cross of Fate (`Asc + Mars - Saturn` - a second
+horary-specific point alongside Part of Fortune, see
+`horar_wri_gl01.txt`) are computed via the existing Lots framework
+(`engine/lots.py`) rather than new machinery - horary just registers a
+second formula there.
 
 ## Requirements
 

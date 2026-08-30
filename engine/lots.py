@@ -101,6 +101,16 @@ class LotDefinition:
 # for how to register a formula that itself needs extra fixed arguments
 # (a ruler/significator) - wrap it in a closure/lambda that captures
 # those, since LotDefinition.formula's shape is always just (raw) -> float.
+def _compute_cross_of_fate(raw: Dict[str, Any]) -> float:
+    """Asc + Mars - Saturn - horary astrology's "Крест Судьбы" (also
+    called the Saturn Point in some sources); see horar_wri_gl01.txt
+    chapter 1 part 3 - not day/night-conditional, unlike Part of Fortune."""
+    asc = raw["ascendant"]["abs_pos"]
+    mars = raw["mars"]["abs_pos"]
+    saturn = raw["saturn"]["abs_pos"]
+    return (asc + mars - saturn) % 360
+
+
 LOT_REGISTRY: Dict[str, LotDefinition] = {
     "part_of_fortune": LotDefinition(
         formula=compute_part_of_fortune,
@@ -112,6 +122,14 @@ LOT_REGISTRY: Dict[str, LotDefinition] = {
             "Asc + Солнце - Луна (ночное) - классический, однозначный Парс"
         ),
         glyph="\u2297",
+    ),
+    "cross_of_fate": LotDefinition(
+        formula=_compute_cross_of_fate,
+        name_ru="Крест Судьбы",
+        gen_ru="Креста Судьбы",
+        abbr="КС",
+        description="Asc + Марс - Сатурн - используется в хорарной астрологии наравне с Парсом Фортуны",
+        glyph=None,
     ),
 }
 

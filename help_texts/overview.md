@@ -25,6 +25,14 @@ far).
 - `rectif_trutina` - Trutine of Hermes: a fast, direct (non-brute-force)
   classical rectification method that needs no life events at all. Good
   first move even with zero information about birth time.
+- `horary_chart` - builds and judges a horary chart (a question asked at
+  a specific moment/place - "will I get this job?", "where is my lost
+  cat?") per classical horary technique: radicality, significators with
+  full essential/accidental dignity, mutual reception, void-of-course
+  Moon, translation/collection of light, perfection-interruption
+  (prohibition/frustration/refranation), and a Yes/No verdict. Call
+  `help("horary")` before using this one too - same "explain the
+  computed verdict, don't re-derive it" contract as rectification.
 - `ping` - connectivity check.
 
 ## Before doing rectification work
@@ -41,12 +49,13 @@ save you from re-deriving the same conclusions or repeating past mistakes.
 
 ## Other topics
 
-Only rectification is covered in depth right now. If you're doing
-something else with this service (synastry, horary, a plain natal reading,
-transit forecasting) and a dedicated help topic doesn't exist yet, use
-`rectif_chart` / `rectif_technique` directly - they're general-purpose -
-and treat the rectification methodology notes as background context where
-relevant (e.g. the timezone/coordinate advice applies universally).
+Rectification and horary are covered in depth - see `help("rectification")`
+and `help("horary")`. If you're doing something else with this service
+(synastry, a plain natal reading, transit forecasting) and a dedicated
+help topic doesn't exist yet, use `rectif_chart` / `rectif_technique`
+directly - they're general-purpose - and treat the rectification
+methodology notes as background context where relevant (e.g. the
+timezone/coordinate advice applies universally).
 
 Call `help()` with no arguments (or an unrecognized topic) to get this
 overview again, including a live-updated list of whatever topics exist at

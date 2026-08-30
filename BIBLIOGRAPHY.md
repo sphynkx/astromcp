@@ -239,6 +239,63 @@ Ascendant + significator - ruler (night birth). Confirms explicitly that
 the profective-MC rule is specific to Koch houses. Not yet implemented
 as a general-purpose Arabic Parts calculator in this service.
 
+## Horary astrology sources
+
+Surveyed for `engine/horary.py` / `help_texts/horary.md` (new this
+session) - see `_horar_docs.zip` as uploaded to the conversation for the
+full archive; only the sources actually drawn from are listed here.
+
+**Masenkov** (attribution per the uploaded `horary_methodology.txt`
+synthesis) / the `horar_wri_gl00-04.txt` textbook chapters (introduction
++ chapters I-IV: chart construction, preliminary analysis/radicality,
+significator determination incl. the derived-house formula, and general
+judgment). — The primary structural source: house meanings, the
+ten-planet sign-rulership table (with Scorpio/Aquarius/Pisces's two
+rulers), angular-vs-majority house-ruler rules (including intercepted
+signs), the derived-house arithmetic for third-party questions
+(D'=sum(chain)-N+1), aspect orb convention (7deg base / 10deg for
+Sun-Moon / 5deg quincunx), void-of-course Moon, and the base
+essential/accidental dignity list. Both of the textbook's own worked
+examples (VIII-house ruler via Venus with Virgo intercepted; a
+brother's/cousin's dog via the derived-house chain) were used as
+correctness checks for the implementation, not just read for theory.
+
+**Frawley, John.** "Учебник хорарной астрологии" ("The Horary
+Textbook"). — The precise classical definitions of prohibition,
+frustration, and refranation (the three specific mechanisms by which an
+applying aspect fails to perfect), used essentially verbatim for
+`engine/horary.py:check_interruption`. Also the source for treating
+combustion/reception context-sensitively in principle (surfaced in
+help_texts/horary.md section 9 as a documented simplification this
+implementation doesn't fully follow - interruption is always treated as
+decisive here, not weighed against the interrupting planet's own
+strength/reception/context as Frawley recommends).
+
+**Lavoie, Alphee** (1995). "Потеряй эту книгу и найди ее с помощью
+хорарной астрологии" ("Lose This Book [and Find It Using Horary
+Astrology]"). — The specific position (referenced by name in
+`horary_methodology.txt` and followed by this implementation) that a
+non-radical chart should still be judged, with a caveat, rather than
+refused outright per the stricter Lilly-era tradition - a non-radical
+chart still shows real situational detail worth reading. The book's own
+detailed lost-object techniques (describing a thief via the VII-house
+ruler, distance-to-object via house-count, etc.) were noted but NOT
+implemented - `horary_chart` computes a Yes/No verdict only, and
+help_texts/horary.md section 8 explicitly tells the model to say so when
+a question (e.g. "who took it?") asks for more than that.
+
+Also present in the uploaded archive but not directly drawn from for
+this implementation (either redundant with the above, format-inaccessible
+in this session, or covering material - reception by term/face/
+exaltation, harmonic techniques, lost-object description in depth -
+explicitly flagged as an optional/advanced extension rather than core
+method): Appleby, Houlding ("Вопросы о любви"), Lewis ("Хорарная
+астрология: простая и понятная"), Huber & Ungar, Oleshko's several
+booklets (lost items/pets/documents), Gorbacevich, Timoshenko's negative-
+completion symbolism note, Hviyuzova on Shestopalov's horary method,
+Robson, Middleton, and a large batch of shorter articles (.htm files) on
+specific horary questions.
+
 ## Consulted but not used
 
 **Boguzky.** "Гермес Трисмегист" (Hermes Trismegistus). — Turned out to

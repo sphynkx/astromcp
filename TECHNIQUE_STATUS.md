@@ -125,10 +125,58 @@ checks passed.
       disallow automated fetching) before this can be implemented
       responsibly.
 
+## Horary (implemented this session)
+
+New tool `horary_chart` + `engine/horary.py`, following
+`horar_wri_gl00-04.txt` (Masenkov's textbook, the primary structural
+source) with Frawley's precise prohibition/frustration/refranation
+definitions and Lavoie's "judge even non-radical charts" position - see
+BIBLIOGRAPHY.md and help_texts/horary.md.
+
+- [x] Radicality check (main: Asc in first/last 3 degrees; 5 secondary
+      warning factors, accumulated not decisive individually)
+- [x] Significators via the ten-planet sign-rulership system, incl. the
+      two-ruler signs (Scorpio/Aquarius/Pisces: classical + modern
+      co-ruler); angular-house cusp rule and majority-of-house-span rule
+      for succedent/cadent houses (`house_ruler_by_majority`), including
+      intercepted-sign handling - verified against gl03's own worked
+      example (Venus as VIII-house ruler, Virgo intercepted and excluded)
+- [x] Derived-house method for third-party questions (`derived_house`) -
+      verified against both of gl03's own worked examples (brother's dog
+      -> house VIII, cousin's dog -> house III)
+- [x] Essential dignity (rulership/exaltation/detriment/fall, 7 classical
+      planets; Uranus/Neptune/Pluto only as co-rulers of their one sign)
+      + accidental dignity (angularity, combustion/under-the-beams,
+      besieged/captive, Via Combusta with the Spica exception, aspects
+      from luminaries/malefics) combined into a strong/weak/mixed
+      classification with every contributing factor listed individually
+- [x] Mutual reception (sign-based only - reception by exaltation/term/
+      face is an explicitly-optional extension per the source, not
+      implemented, see help_texts/horary.md section 3)
+- [x] Void-of-course Moon (checked against the 9 real planets only, not
+      Part of Fortune/Cross of Fate - see engine/horary.py's module
+      docstring for why) + "last aspect before leaving sign"
+- [x] Translation and collection of light (favorable aspects only, per
+      the source's own aspect-type taxonomy)
+- [x] Perfection-interruption: prohibition/frustration/refranation per
+      Frawley's precise definitions - refranation specifically uses a
+      real second ephemeris snapshot at the projected perfection time
+      (not a linear speed guess, which can't distinguish "slowing down"
+      from "about to station") to detect a genuine direction reversal
+- [x] Part of Fortune + Cross of Fate (Asc+Mars-Saturn) via the existing
+      Lots framework (`engine/lots.py`) - no new machinery needed
+- [x] Full Yes/No verdict decision tree (help_texts/horary.md section 5)
+
+**Testing caveat applies here too** (see the note at the top of this
+file) - the pure-Python logic (derived-house arithmetic, essential
+dignity, house-ruler-by-majority with interception, the verdict decision
+tree) was verified against the source's own worked examples in-sandbox;
+end-to-end behavior through kerykeion on the production server is this
+tool's first real test.
+
 ## Documented but intentionally not implemented (with reason)
 
-- [x] ~~Bonatti's method~~ - now implemented (`rectif_bonatti_scan`)
-- [ ] Progressive meridian method - confirmed redundant, see above; no
+- [x] ~~Bonatti's method~~ - now implemented (`rectif_bonatti_scan`)- [ ] Progressive meridian method - confirmed redundant, see above; no
       separate tool needed
 - [x] ~~Brady's graphic/histogram clustering method~~ - now implemented
       (`rectif_degree_clustering`)

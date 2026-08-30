@@ -625,6 +625,76 @@ def rectif_herich_scan(
     )
 
 
+@mcp.tool()
+def horary_chart(
+    year: int, month: int, day: int,
+    hour: int, minute: int, second: int = 0,
+    lat: float = 0.0, lng: float = 0.0,
+    tz_str: Optional[str] = None,
+    tz_offset_minutes: Optional[int] = None,
+    house_system: str = "P",
+    zodiac_type: str = config.DEFAULT_ZODIAC_TYPE,
+    question: str = "",
+    quesited_house: Optional[int] = None,
+    derived_house_chain: Optional[List[int]] = None,
+    derived_house_labels: Optional[List[str]] = None,
+    is_self_query: bool = False,
+) -> Dict[str, Any]:
+    """
+    Builds and judges a horary chart for one question asked at one
+    moment/place - radicality, significators (with essential+accidental
+    dignity), mutual reception, void-of-course Moon, translation/
+    collection of light, perfection-interruption (prohibition/
+    frustration/refranation per Frawley), and a final Yes/No verdict.
+    Call help("horary") FIRST - it's required reading before using this
+    tool's output, the same way help("rectification") is for rectif_*:
+    it explains how to turn this tool's already-computed facts into a
+    proper reading rather than re-deriving or second-guessing the verdict.
+
+    year/month/day/hour/minute/second/lat/lng/tz_* - the moment and place
+    the question was asked (or received/read - see help("horary") section
+    on which moment/place counts for phone, online, or written questions).
+    Timing needs to-the-minute accuracy; this is not a birth-time
+    estimate the way natal charts tolerate being.
+
+    house_system defaults to Placidus ("P") - horary's own conventional
+    default, not config.DEFAULT_HOUSE_SYSTEM (which is tuned for
+    rectification). Regiomontanus ("R") is the classical Lilly-era
+    alternative.
+
+    question - the question text, verbatim, exactly as asked. Used only
+    to echo back in the output for context - matters for HOW you phrase
+    the final Yes/No in your own words (see help("horary") section 7 on
+    matching the verdict's grammar to the question's).
+
+    quesited_house - which house (1-12) represents the matter asked
+    about. See help("horary")'s house-meaning table for the standard
+    assignments (money=2, siblings=3, health/work=6, marriage/partner=7,
+    death/other people's money=8, career=10, friends=11, ...).
+
+    derived_house_chain - use INSTEAD of quesited_house when the question
+    is about a THIRD PARTY, not the querent directly (a friend's job, a
+    sibling's pet, a cousin's lawsuit, ...). The sequence of house
+    numbers for each hop outward from the querent - see help("horary")
+    section 2 for the method and worked examples. This tool computes and
+    returns the resolved house explicitly; use that number as given,
+    don't recompute the chain by hand. derived_house_labels is an
+    optional same-length list of human-readable labels for each hop
+    (e.g. ["cousin", "dog"]), purely for readability in the output - it
+    doesn't affect the arithmetic.
+
+    is_self_query - True if the astrologer/caller is asking their own
+    question rather than judging one posed by someone else - shifts
+    which house (I vs VII) some of the radicality checks examine.
+    """
+    return tools.horary_chart(
+        year, month, day, hour, minute, second, lat, lng,
+        tz_str, tz_offset_minutes, house_system, zodiac_type,
+        question, quesited_house, derived_house_chain, derived_house_labels,
+        is_self_query,
+    )
+
+
 ASTRO_HELP_DOC = {
     "title": "astromcp /astro - available parameters",
     "content": (

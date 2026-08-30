@@ -6,9 +6,13 @@ MCP server.
 """
 
 import logging
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
 from . import config
+from . import horary
+from . import lots
+from . import houses as houses_module
 from .chart import build_subject, serialize_subject, natal_points_dict, subject_raw, resolve_fixed_offset_minutes
 from .aspects import compute_aspects
 from .techniques import (
@@ -21,11 +25,269 @@ from .trutina import run_trutina_hermetis
 from .criteria import run_three_movements_scan, run_timoshenko_scan, run_bonatti_scan, run_herich_scan
 from .clustering import collect_transiting_degrees, build_degree_histogram, find_time_for_angle
 from .help import get_help
-from .constants import DEFAULT_POINTS, LUMINARY_NAMES
+from .constants import DEFAULT_POINTS, LUMINARY_NAMES, HOUSE_KEYS
 from .display import print_chart_result, print_technique_result, print_scan_result
 from .jobs import submit_job, get_job
 
 logger = logging.getLogger("astromcp")
+
+HORARY_PLANET_NAMES = ["sun", "moon", "mercury", "venus", "mars", "jupiter",
+                        "saturn", "uranus", "neptune", "pluto"]
+# Max look-ahead when building the "future" snapshot used for refranation
+# detection (engine/horary.py:check_interruption). A key aspect that
+# wouldn't perfect for months is already well past the "next aspect"
+# scope horary judgment concerns itself with (see Frawley, quoted in
+# horary.py's module docstring) - past this cap, the future snapshot is
+# simply skipped rather than built for an ever-growing offset.
+HORARY_FUTURE_SNAPSHOT_MAX_DAYS = 40.0
+
+
+def horary_chart(
+    year: int, month: int, day: int,
+    hour: int, minute: int, second: int = 0,
+    lat: float = 0.0, lng: float = 0.0,
+    tz_str: Optional[str] = None,
+    tz_offset_minutes: Optional[int] = None,
+    house_system: Optional[str] = None,
+    zodiac_type: Optional[str] = None,
+    question: str = "",
+    quesited_house: Optional[int] = None,
+    derived_house_chain: Optional[List[int]] = None,
+    derived_house_labels: Optional[List[str]] = None,
+    is_self_query: bool = False,
+) -> Dict[str, Any]:
+    """
+    Builds and judges a horary chart. See help_texts/horary.md for the
+    full methodology this implements - this docstring covers only the
+    calling contract.
+
+    house_system defaults to Placidus ("P") - horary's own conventional
+    default (see horar_wri_gl01.txt), independent of
+    config.DEFAULT_HOUSE_SYSTEM which is tuned for rectification work.
+    Regiomontanus ("R") is the classical Lilly-era alternative, also
+    supported.
+
+    quesited_house - the house (1-12) representing the matter asked
+    about, when the question is about the querent directly or about
+    something with an immediate, undisputed house (money=2, siblings=3,
+    health=6, marriage=7, ...). See help_texts/horary.md's house-meaning
+    table for the standard assignments.
+
+    derived_house_chain - instead of quesited_house, for a question about
+    a THIRD PARTY (the querent's brother's dog, a friend's job, etc):
+    the sequence of house numbers for each hop from the querent outward,
+    per the derived-house method (e.g. a full brother's dog is [6, 3] -
+    the dog(6th) of the brother(3rd)). derived_house_labels is an
+    optional same-length list of human-readable labels for each hop
+    (e.g. ["brother", "dog"]) purely echoed back in the output for
+    traceability - it plays no role in the arithmetic. The resolved
+    house and the chain that produced it are both returned explicitly,
+    per the methodology's own requirement that the model use this
+    number as given rather than recompute the chain itself.
+
+    is_self_query - True if the astrologer is judging their own
+    question (changes which house the secondary radicality checks and
+    "quesited house" default examine - see help_texts/horary.md section 1).
+    """
+    house_system = house_system or "P"
+    zodiac_type = zodiac_type or config.DEFAULT_ZODIAC_TYPE
+    try:
+        if derived_house_chain:
+            derivation = horary.derived_house(derived_house_chain)
+            if derived_house_labels:
+                derivation["labels"] = derived_house_labels
+            q_house = derivation["resolved_house"]
+        elif quesited_house is not None:
+            derivation = None
+            q_house = quesited_house
+        else:
+            return {"error": "either quesited_house or derived_house_chain must be given"}
+        if not (1 <= q_house <= 12):
+            return {"error": f"resolved quesited house {q_house} is out of range 1-12"}
+
+        subject, resolved_tz, tz_source = build_subject(
+            "horary", year, month, day, hour, minute, second,
+            lat, lng, tz_str, tz_offset_minutes, house_system, zodiac_type,
+        )
+        raw = subject_raw(subject)
+
+        planets = {p: raw[p] for p in HORARY_PLANET_NAMES if raw.get(p) is not None}
+        pof = lots.compute_lot("part_of_fortune", raw)
+        cof = lots.compute_lot("cross_of_fate", raw)
+        all_points = dict(planets)
+        all_points["part_of_fortune"] = pof
+        all_points["cross_of_fate"] = cof
+
+        cusps = {i: raw[HOUSE_KEYS[i - 1]]["abs_pos"] for i in range(1, 13)}
+
+        def house_rulers_for(house_num: int):
+            if house_num in horary.ANGULAR_HOUSES:
+                return horary.house_rulers(horary.sign_idx(cusps[house_num]))
+            next_house = house_num + 1 if house_num < 12 else 1
+            return horary.house_ruler_by_majority(cusps[house_num], cusps[next_house])
+
+        querent_primary, querent_secondary = house_rulers_for(1)
+        quesited_primary, quesited_secondary = house_rulers_for(q_house)
+        fourth_primary, fourth_secondary = house_rulers_for(4)
+
+        # Full aspect grid (planets + Part of Fortune + Cross of Fate) using
+        # horary's own aspect set/orb convention - general supplementary
+        # info, and what assess_significator cites aspects from.
+        full_aspects = compute_aspects(
+            all_points, all_points, horary.HORARY_ASPECTS, horary.HORARY_ORB_TABLE,
+            horary.HORARY_LUMINARY_BONUS, horary.LUMINARIES,
+        )
+        # de-duplicate the symmetric (a,b)/(b,a) pairs compute_aspects
+        # produces when computed_points and natal_points are the same dict
+        seen = set()
+        deduped_aspects = []
+        for asp in full_aspects:
+            if asp["point_a"] == asp["point_b"]:
+                continue
+            fkey = (frozenset((asp["point_a"], asp["point_b"])), asp["aspect_deg"])
+            if fkey in seen:
+                continue
+            seen.add(fkey)
+            deduped_aspects.append(asp)
+        full_aspects = deduped_aspects
+
+        def aspects_for(name):
+            return [a for a in full_aspects if a["point_a"] == name or a["point_b"] == name]
+
+        def house_of(name):
+            return horary.house_number_from_field(all_points[name].get("house"))
+
+        querent_assessment = horary.assess_significator(
+            querent_primary, all_points[querent_primary], house_of(querent_primary),
+            all_points, aspects_for(querent_primary),
+        )
+        quesited_assessment = horary.assess_significator(
+            quesited_primary, all_points[quesited_primary], house_of(quesited_primary),
+            all_points, aspects_for(quesited_primary),
+        )
+        moon_assessment = horary.assess_significator(
+            "moon", all_points["moon"], house_of("moon"), all_points, aspects_for("moon"),
+        )
+        fourth_assessment = horary.assess_significator(
+            fourth_primary, all_points[fourth_primary], house_of(fourth_primary),
+            all_points, aspects_for(fourth_primary),
+        )
+        querent_secondary_assessment = None
+        if querent_secondary:
+            querent_secondary_assessment = horary.assess_significator(
+                querent_secondary, all_points[querent_secondary], house_of(querent_secondary),
+                all_points, aspects_for(querent_secondary),
+            )
+        quesited_secondary_assessment = None
+        if quesited_secondary:
+            quesited_secondary_assessment = horary.assess_significator(
+                quesited_secondary, all_points[quesited_secondary], house_of(quesited_secondary),
+                all_points, aspects_for(quesited_secondary),
+            )
+
+        reception = horary.mutual_reception(
+            all_points[querent_primary], all_points[quesited_primary], querent_primary, quesited_primary,
+        )
+
+        voc = horary.moon_forward_aspects(all_points["moon"], all_points)
+
+        # Refranation needs a real future ephemeris snapshot - see
+        # horary.check_interruption's docstring for why a linear guess
+        # from current speed alone isn't reliable near a station.
+        key_asp = horary.key_aspect_between(
+            querent_primary, all_points[querent_primary], quesited_primary, all_points[quesited_primary],
+        )
+        future_points = None
+        if key_asp and key_asp["status"] == "applying":
+            rel_speed = (all_points[querent_primary].get("speed", 0.0) or 0.0) - \
+                        (all_points[quesited_primary].get("speed", 0.0) or 0.0)
+            if rel_speed != 0:
+                days = abs(key_asp["exact_orb"]) / abs(rel_speed)
+                if 0 < days <= HORARY_FUTURE_SNAPSHOT_MAX_DAYS:
+                    future_dt = datetime(year, month, day, hour, minute, second) + timedelta(days=days)
+                    future_subject, _, _ = build_subject(
+                        "horary_future", future_dt.year, future_dt.month, future_dt.day,
+                        future_dt.hour, future_dt.minute, future_dt.second,
+                        lat, lng, tz_str, tz_offset_minutes, house_system, zodiac_type,
+                    )
+                    future_raw = subject_raw(future_subject)
+                    future_points = {
+                        name: future_raw[name] for name in (querent_primary, quesited_primary)
+                        if future_raw.get(name) is not None
+                    }
+
+        verdict = horary.compute_verdict(
+            querent_primary, all_points[querent_primary],
+            quesited_primary, all_points[quesited_primary],
+            {k: v for k, v in all_points.items() if k not in ("part_of_fortune", "cross_of_fate")},
+            querent_assessment, quesited_assessment, reception, voc, future_points,
+        )
+
+        # Radicality
+        asc_abs = raw["ascendant"]["abs_pos"]
+        target_house = 1 if is_self_query else 7
+        relevant_angle_sign_idx = horary.sign_idx(cusps[target_house])
+        saturn_house = house_of("saturn")
+        saturn_aspects_to_target = []
+        for name, pt in all_points.items():
+            if name in ("saturn", "part_of_fortune", "cross_of_fate"):
+                continue
+            if house_of(name) != target_house:
+                continue
+            asp = horary.key_aspect_between("saturn", all_points["saturn"], name, pt)
+            if asp:
+                saturn_aspects_to_target.append(asp)
+        radicality = horary.check_radicality(
+            asc_abs, all_points["moon"]["abs_pos"], relevant_angle_sign_idx,
+            saturn_house, saturn_aspects_to_target, is_self_query,
+        )
+
+        result = {
+            "question": question,
+            "is_self_query": is_self_query,
+            "quesited_house": q_house,
+            "derived_house": derivation,
+            "radicality": radicality,
+            "significators": {
+                "querent": {
+                    "house": 1,
+                    "primary_ruler": querent_assessment,
+                    "secondary_ruler": querent_secondary_assessment,
+                    "co_significator_moon": moon_assessment,
+                },
+                "quesited": {
+                    "house": q_house,
+                    "primary_ruler": quesited_assessment,
+                    "secondary_ruler": quesited_secondary_assessment,
+                },
+                "fourth_house_ruler": fourth_assessment,
+            },
+            "mutual_reception": reception,
+            "void_of_course_moon": voc,
+            "verdict": verdict,
+            "final_answer": "yes" if verdict["verdict"] else "no",
+            "aspects": full_aspects,
+            "points": {k: v for k, v in all_points.items()},
+            "houses": {i: {"abs_pos": cusps[i]} for i in range(1, 13)},
+            "meta": {
+                "tz_used": resolved_tz,
+                "tz_source": tz_source,
+                "house_system": house_system,
+                "zodiac_type": zodiac_type,
+                "input_datetime": f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}",
+            },
+        }
+        if config.CONSOLE_RESULT_PREVIEW:
+            logger.info(
+                "  horary: verdict=%s radical=%s querent=%s(%s) quesited=%s(%s house %d)",
+                result["final_answer"], radicality["radical"],
+                querent_primary, querent_assessment["strength"],
+                quesited_primary, quesited_assessment["strength"], q_house,
+            )
+        return result
+    except Exception as e:
+        logger.exception("horary_chart failed")
+        return {"error": str(e)}
 
 
 def rectif_chart(
