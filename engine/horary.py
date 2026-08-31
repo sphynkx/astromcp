@@ -657,43 +657,65 @@ def compute_verdict(
     tc = find_translation_collection(querent_name, querent_pt, quesited_name, quesited_pt, all_points)
 
     verdict = None
+    outcome_quality = None
     path = []
 
     if key_aspect and key_aspect["status"] == "exact":
         verdict = True
+        outcome_quality = "clean"
         path.append("significators are the same planet, or already in an exact aspect - union already in effect")
     elif key_aspect and key_aspect["status"] == "applying":
         interruption = check_interruption(querent_name, querent_pt, quesited_name, quesited_pt,
                                            key_aspect, all_points, future_points)
         if interruption:
             verdict = False
+            outcome_quality = "no"
             path.append(f"applying {key_aspect['aspect_deg']} deg aspect exists but is interrupted ({interruption['type']})")
         elif key_aspect["aspect_deg"] in ({0} | HORARY_FAVORABLE_ASPECTS):
             verdict = True
+            outcome_quality = "clean"
             path.append(f"clean applying {key_aspect['aspect_deg']} deg aspect between the significators")
         else:  # hard aspect: 90, 150, 180
             strong_a = querent_assessment["strength"] != "weak" or reception
             strong_b = quesited_assessment["strength"] != "weak" or reception
             if strong_a and strong_b:
                 verdict = True
+                outcome_quality = "under_tension"
                 path.append(f"applying hard aspect ({key_aspect['aspect_deg']} deg), but both significators strong"
                              + (" (reception compensates)" if reception and (querent_assessment['strength'] == 'weak' or quesited_assessment['strength'] == 'weak') else "")
                              + " - achieved under tension")
             elif not strong_a:
                 verdict = False
+                outcome_quality = "no"
                 path.append("applying hard aspect and the querent's significator is weak")
             else:
-                verdict = False
-                path.append("applying hard aspect and the quesited significator is weak (pyrrhic/no real gain)")
+                # The quesited significator being weak under an applying
+                # hard aspect is the classical "pyrrhic victory" reading -
+                # achieved, but only barely and at real cost, not a clean
+                # failure. An earlier version of this function labeled the
+                # reasoning "pyrrhic" while still returning verdict=False,
+                # which contradicts the label (a pyrrhic victory is still a
+                # victory) - fixed to return True with the qualification
+                # made explicit via outcome_quality, after a real case
+                # (see BIBLIOGRAPHY.md / commit history) played out exactly
+                # this way: achieved, but by the narrowest possible margin,
+                # only after real difficulty.
+                verdict = True
+                outcome_quality = "pyrrhic"
+                path.append("applying hard aspect and the quesited significator is weak - "
+                             "a pyrrhic outcome: achieved, but narrowly and at real cost, not a clean win")
     elif key_aspect and key_aspect["status"] == "separating":
         verdict = False
+        outcome_quality = "no"
         path.append(f"only a separating {key_aspect['aspect_deg']} deg aspect (already past)")
     else:
         verdict = False
+        outcome_quality = "no"
         path.append("no aspect in orb between the significators")
 
     if verdict is False and (tc["translations"] or tc["collections"]):
         verdict = True
+        outcome_quality = "indirect"
         if tc["translations"]:
             t = tc["translations"][0]
             path.append(f"translation of light via {t['planet']} ({t['from']} -> {t['to']})")
@@ -703,6 +725,7 @@ def compute_verdict(
 
     if verdict is False and reception and not (key_aspect and key_aspect["status"] == "applying"):
         verdict = True
+        outcome_quality = "indirect"
         path.append("mutual reception between the significators, with no other applying aspect")
 
     voc_override = False
@@ -710,6 +733,7 @@ def compute_verdict(
         if verdict is not False:
             voc_override = True
         verdict = False
+        outcome_quality = "no"
         path.append("Moon is void of course - overrides to a negative verdict regardless of the above")
 
     return {
@@ -718,6 +742,7 @@ def compute_verdict(
         "translation_collection": tc,
         "mutual_reception": reception,
         "verdict": verdict,
+        "outcome_quality": outcome_quality,
         "voc_override": voc_override,
         "reasoning_path": path,
     }
