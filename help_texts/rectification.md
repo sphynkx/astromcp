@@ -101,6 +101,75 @@ per this project's explicit direction, not because of any technical flaw.
    "Performance" below) and are best used sparingly, as a tiebreaker on a
    small number of already-narrowed candidates.
 
+## Personal events take priority over public/career events
+
+**Check births of children, marriages, and divorces first, and trust
+them more than career/public/political events when the two disagree.**
+This is a real, repeatedly-confirmed pattern, not a stylistic
+preference: a real session (Dmitry Gordon, 21.10.1967) initially
+converged on a candidate driven almost entirely by media/career
+milestones (YouTube channel launches, a criminal case abroad) - a
+broad but, on reflection, public-facing cluster. A dedicated pass
+checking all six of his children with exactly-known birth dates (out
+of seven total) against the SAME candidate window found the
+public-event candidate showed almost nothing for the family events,
+while a different candidate roughly two hours away showed six-for-six
+near-exact direction hits (several under 0.1 degree) across 27 years
+of family history. The family-driven candidate was adopted as the
+final answer over the public-event one specifically because it was
+more thoroughly and more tightly confirmed - not because personal
+events are dogmatically "more correct" in principle, but because in
+this case they demonstrably gave the sharper, more numerous
+correspondences. The general lesson: public/career events are numerous
+and easy to reach for (frequently exact-dated, well-documented,
+convenient) precisely because they're public - that convenience is not
+evidential strength. A person's own marriages, divorces, and children's
+births sit closer to the chart's own core significations (VII, V, and
+their rulers) than a film premiere or a channel launch does, and should
+be gathered and checked - via directions, per the requirement below,
+including every imprecisely-dated one - BEFORE leaning on a
+public-event-only convergence as a final answer. If the person hasn't
+volunteered this information, ask for it explicitly: dates of
+marriages/divorces and children's births, even approximate ones.
+
+This does not license assigning children/marriages a higher numeric
+`weight` - see "Never assign subjective event weights" below, which
+still applies. The priority here is about investigative order and
+which evidence to trust when two categories of events point to
+different candidates, not about feeding a different number into the
+scan.
+
+## Directions are mandatory for imprecise dates, not optional
+
+Every event with only a year, or a year+month, known - not just the
+precisely-dated ones - must still be run through direction-based
+checking (`technique="solar_arc"`, per the priority order above), using
+a reasonable specific day within the known range (documented as an
+assumption) rather than skipped for lack of precision. An imprecise
+date is exactly the situation directions are suited for: solar arc
+moves about 1 degree per year, so a day-level uncertainty within a
+known month, or a month-level uncertainty within a known year, changes
+the resulting arc by a small fraction of a degree - well inside normal
+orb tolerances - while still contributing real evidence. Skipping
+imprecise events because they "aren't exact enough" throws away
+information that directions can use perfectly well; it's the technique
+itself (transits, mainly) that needs exact dates, not directions.
+
+## Attempt second-level precision, and say plainly when it isn't reached
+
+Once a candidate window has narrowed to a few minutes, always run a
+final `step_seconds` pass (via `rectif_scan` exploratory, then verify
+with direct `rectif_technique` calls) before presenting the answer,
+rather than stopping at minute-level by default. Report the outcome
+honestly either way: sometimes a real, narrow plateau or peak emerges
+(worth stating to the second); often, because the underlying events are
+dated without a time-of-day, the fine pass shows a flat plateau spanning
+a minute or more with no internal peak - that's a genuine property of
+the method's resolution given day-only event dates, not a failure to
+look hard enough, and should be reported as "minute-level precision" (with the plateau's actual width stated) rather than
+picking an arbitrary second within it to sound more precise than the
+evidence supports.
+
 ## Never assign subjective event weights
 
 The `weight` field on scan events defaults to 1.0 and should stay that
@@ -248,17 +317,25 @@ use `rectif_scan_start` + poll `rectif_scan_result` instead of blocking on
    output is itself not a score - it's a direct solve, or an honestly
    reported non-convergent cycle - so no conflict with the no-scoring
    policy above.
-2. Optionally, a coarse `rectif_scan` run (clearly labeled as
-   exploratory, per "No invented scoring" above) to get a rough sense of
-   where the real check in step 3 might be worth aiming - or skip
-   straight to step 3 across the full day if you'd rather not rely on it
-   at all.
-3. `rectif_movements_scan`, once per event, using `target_houses`
-   (reasoned per-event, see above) and Koch houses. Take each event's
-   `qualifying_times` and intersect them across events, narrowing the
-   surviving candidate set - not by summing anything.
+2. Gather personal events first (see "Personal events take priority"
+   above): every marriage, divorce, and child's birth, asking explicitly
+   if not already given, including imprecisely-dated ones. Optionally, a
+   coarse `rectif_scan` run (clearly labeled as exploratory, per "No
+   invented scoring" above) to get a rough sense of where the real check
+   in step 3 might be worth aiming - or skip straight to step 3 across
+   the full day if you'd rather not rely on it at all.
+3. `rectif_movements_scan`, once per event - personal events first, then
+   public/career ones as corroboration - using `target_houses` (reasoned
+   per-event, see above) and Koch houses. Run every event regardless of
+   date precision (see "Directions are mandatory" above). Take each
+   event's `qualifying_times` and intersect them across events, narrowing
+   the surviving candidate set - not by summing anything. If personal
+   and public events' surviving sets disagree, prefer whichever is
+   confirmed more thoroughly and more tightly (see above), and say so
+   explicitly rather than quietly picking one.
 4. Narrow further with a finer step (`step_seconds` supported) once a
-   surviving window is small.
+   surviving window is small - see "Attempt second-level precision"
+   above.
 5. Cross-check the surviving candidate(s) with `rectif_technique` calls
    using transits on events with an exactly known date/time, and
    optionally solar returns, before presenting a final answer.
