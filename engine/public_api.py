@@ -32,6 +32,7 @@ from .constants import DEFAULT_POINTS, ANGLE_KEYS, HOUSE_KEYS, LUMINARY_NAMES
 from .arabic_parts import is_day_birth
 from .lots import compute_all_lots
 from .fixed_stars import compute_fixed_stars, stars_conjunct_points
+from .jones_patterns import classify_jones_figure, JONES_PLANET_NAMES
 from . import geocode
 
 logger = logging.getLogger("astromcp")
@@ -118,6 +119,7 @@ def build_full_report(
     include_house_cusp_aspects: bool = True,
     include_fixed_stars: bool = True,
     include_arabic_parts: bool = True,
+    include_jones_figure: bool = True,
     lots: Optional[List[str]] = None,
     aspect_set: Optional[List[float]] = None,
     orb_table: Optional[Dict[float, float]] = None,
@@ -198,6 +200,31 @@ def build_full_report(
         "houses": houses,
     }
 
+    if include_jones_figure:
+        # Marc Edmund Jones' planetary-pattern classification (Bundle,
+        # Locomotive, Bowl, Bucket, Splash, Splay, See-Saw, plus the
+        # Russian-tradition-only Sling - see engine/jones_patterns.py for
+        # exactly what's implemented and why, and which named patterns
+        # were deliberately left out). A NEW top-level field, purely
+        # additive - does not alter any existing field, so this cannot
+        # break an existing MediaWiki caller that ignores it.
+        try:
+            jones_longitudes = {p: planets[p]["abs_pos"] for p in JONES_PLANET_NAMES}
+            result["Jones_figure"] = classify_jones_figure(jones_longitudes)["figure"]
+        except Exception as e:
+            # A failure here should never take down the rest of an
+            # otherwise-successful report - degrade to an explicit
+            # per-field error marker instead. This is intentionally NOT
+            # the string "Mixed" (a genuine classification result) or a
+            # top-level {"error": ...} response (which would hide the
+            # rest of an otherwise-good report) - see help_texts/ or the
+            # MediaWiki-side handling notes for how to tell the three
+            # apart: "Mixed" (real result, no clean shape), a string
+            # starting with "Error:" (this field specifically failed),
+            # and a top-level "error" key (the whole request failed).
+            logger.exception("Jones figure classification failed")
+            result["Jones_figure"] = f"Error: {e}"
+
     lot_points: Dict[str, Any] = {}
     if include_arabic_parts and lots:
         # One extra ephemeris computation, shared across every requested
@@ -257,8 +284,9 @@ def build_full_report(
         "house_system": house_system,
         "zodiac_type": zodiac_type,
         "input_datetime": f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}",
-        "schema_version": 2,  # bumped: "arabic_parts" -> "lots" (richer
-                              # per-Lot shape: house+speed, not a bare
-                              # float), new top-level "is_day_birth"
+        "schema_version": 3,  # v2->v3: added top-level "Jones_figure"
+                              # (Marc Edmund Jones planetary pattern
+                              # classification) - purely additive, does
+                              # not change any existing field's shape.
     }
     return result

@@ -738,6 +738,15 @@ ASTRO_HELP_DOC = {
         "no_house_cusp_aspects": "=1 to compute aspects for planets/angles only, excluding the 12 house cusps as targets (JSON endpoint only)",
         "no_stars": "=1 to omit 'fixed_stars' / 'fixed_star_conjunctions' (JSON endpoint only)",
         "no_parts": "=1 to omit 'lots' and 'is_day_birth' (JSON endpoint only)",
+        "no_jones": (
+            "=1 to omit the top-level 'Jones_figure' field on the JSON "
+            "endpoint (Marc Edmund Jones planetary-pattern classification "
+            "- Bundle/Locomotive/Bowl/Bucket/Splash/Splay/See-Saw/Sling/"
+            "Mixed; included by default there). The SVG endpoint has the "
+            "opposite default (this field isn't used by the chart wheel, "
+            "so it's skipped unless asked for) - pass jones=1 on the SVG "
+            "endpoint specifically to compute it anyway."
+        ),
         "lots": (
             "comma-separated list of registered Lot/Arabic Part names to "
             "compute (see engine/lots.py:LOT_REGISTRY) - default "
@@ -861,6 +870,7 @@ async def astro_report(request: Request) -> JSONResponse:
             include_house_cusp_aspects=(q.get("no_house_cusp_aspects") != "1"),
             include_fixed_stars=(q.get("no_stars") != "1"),
             include_arabic_parts=(q.get("no_parts") != "1"),
+            include_jones_figure=(q.get("no_jones") != "1"),
             lots=[s.strip() for s in lots_param.split(",")] if lots_param else None,
         )
         return JSONResponse(result)
@@ -910,6 +920,7 @@ async def astro_chart_svg(request: Request) -> Response:
             include_house_cusp_aspects=True,
             include_fixed_stars=True,
             include_arabic_parts=(q.get("no_parts") != "1"),
+            include_jones_figure=(q.get("jones") == "1"),
             lots=[s.strip() for s in lots_param.split(",")] if lots_param else None,
         )
         photo_data_uri = photo_fetch.fetch_photo_as_data_uri(q.get("photo_url"))
