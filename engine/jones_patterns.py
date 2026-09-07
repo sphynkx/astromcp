@@ -47,14 +47,23 @@ JONES_PLANET_NAMES = [
 ]
 
 # Orb used wherever a specific angular relationship needs to be checked
-# (e.g. "the two rim planets of a Bowl are opposite each other") - kept
-# consistent with this project's general transit-orb sensibility rather
-# than invented specifically for this feature.
-OPPOSITION_ORB = 9.0
-# Orb used for "a lone planet sits roughly in the middle of the empty
-# gap" (Sling) - wider, since "roughly bisecting" is inherently a looser
-# condition than an exact aspect.
-MIDPOINT_ORB = 15.0
+# (e.g. "the two rim planets of a Bowl are opposite each other").
+#
+# WIDENED from an initial 9 deg after checking against real production
+# data: Jones' shapes are a coarse VISUAL characterization of the whole
+# wheel, not a precision aspect - a real Bowl/Bucket chart (e.g. Irina
+# Allegrova, 20.01.1952) had rim planets 18 deg off exact opposition,
+# which a tight orb rejected outright, kicking a clearly-shaped chart
+# into "Mixed". 20 deg is generous enough to catch that kind of real
+# case while still meaning something ("roughly opposite", not "anywhere
+# in the same half of the wheel").
+OPPOSITION_ORB = 20.0
+# Orb used for "a lone planet/handle sits roughly in the middle of the
+# empty gap" (Sling/Bucket) - wider than OPPOSITION_ORB since "roughly
+# bisecting a wide gap" is an even looser condition than "roughly
+# opposite a specific point". Also widened after the same production-
+# data check.
+MIDPOINT_ORB = 30.0
 # Max span allowed WITHIN a multi-planet handle for it to still count as
 # "one clustered mass" rather than two separate poles (the rejected
 # Stool configuration) - a conjunction-width tolerance, not sourced to
@@ -207,8 +216,30 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
     # stronger objection than the sourcing concern already noted for
     # Sling above (this one isn't just under-sourced, it's provably
     # impossible to satisfy as literally described) - see BIBLIOGRAPHY.md.
-    if g_max <= 60.0:
-        return {"figure": "splash", "detail": f"planets spread around most/all of the wheel, largest single gap {g_max:.1f} deg (<=60 deg)", "gaps": gaps_report}
+    #
+    # Splash's threshold was originally a hardcoded g_max<=60 deg, sourced
+    # from a Russian-language paraphrase. Checked against real production
+    # data (42 charts), that left a completely uncovered band - any chart
+    # with a largest gap of roughly 60-120 deg matched NEITHER Splash
+    # (needed <=60) NOR Locomotive (needed >=120) NOR any of the more
+    # specific shapes above, and fell into "Mixed" by construction, not
+    # because the chart was genuinely ambiguous (e.g. Alla Pugacheva,
+    # 15.04.1949: largest gap 78.6 deg - comfortably "spread out" by any
+    # ordinary reading, misclassified as Mixed under the old threshold).
+    # Since every chart already fails Locomotive's own occupied_span<=240
+    # check by the time execution reaches here (g_max<120), Splash is now
+    # simply "not Locomotive, and no more specific shape fit" - the two
+    # exhaust the whole range between them with nothing left uncovered,
+    # matching Splash's traditional role as the default "no dominant
+    # single-gap shape" reading rather than a narrow named pattern of its
+    # own. "Mixed" remains in the code as a defensive fallback (kept
+    # genuinely reachable, not dead code, in case a future change to the
+    # checks above ever leaves a real gap again) but should no longer
+    # fire in practice for any chart with 10 well-defined points - if it
+    # does, that's worth investigating as a real gap, not dismissed as an
+    # expected outcome.
+    if g_max < 120.0:
+        return {"figure": "splash", "detail": f"planets spread around most/all of the wheel, largest single gap {g_max:.1f} deg (<120 deg, i.e. not Locomotive-worthy)", "gaps": gaps_report}
 
     return {"figure": "mixed", "detail": f"no clean fit - largest gap {g_max:.1f} deg, occupied span {occupied_span:.1f} deg does not match any single pattern's range cleanly; this is a genuine, correctly-computed result (Jones' own sources acknowledge transitional/mixed charts exist), not a computation error", "gaps": gaps_report}
 
