@@ -16,13 +16,7 @@
 --
 -- Called directly (no parent-template indirection expected, per the
 -- actual invocation in use):
---   {{#invoke:ParseType|modal|date={{{Социотип|}}} }}
--- NOTE: the parameter is named "date" only because that's the existing
--- calling convention already in use on the wiki (copied from the
--- Astrodata invocations, where it genuinely is a date) - it holds a
--- socionics type code here, not a date. Kept as-is to match the actual
--- call site; worth renaming to something like "type" if this module
--- gets its own dedicated template wrapper later.
+--   {{#invoke:ParseType|modal|tim={{{Социотип|}}} }}
 
 local p = {}
 
@@ -68,7 +62,7 @@ etc.) - silently, matching the existing Astrodata module's convention
 of not showing raw error text on the page for a missing/bad field.
 --]]
 function p.modal(frame)
-	local raw = frame.args["date"]
+	local raw = frame.args["tim"]
 	if raw == nil then
 		return ""
 	end
