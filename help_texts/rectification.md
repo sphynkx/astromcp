@@ -8,6 +8,58 @@ that's noted explicitly rather than papered over. Deliberately excluded
 from this survey: anything by Pavel Globa, and Vedic/Indian astrology -
 per this project's explicit direction, not because of any technical flaw.
 
+## Assess source quality before starting, and re-verify it as carefully as any winning candidate
+
+Not every stated birth time carries the same weight, and the very first
+step - before Trutina, before any scan - is sizing up what kind of
+claim is actually on the table:
+
+- A birth certificate in hand, corroborated independently by a
+  published autobiography AND a separate biography (Salvador Dalí's
+  8:45, astro-databank rating from a primary document) is about as
+  strong as birth-time evidence gets.
+- A time relayed secondhand through an interview, a family member's
+  recollection, or an unsourced online post is real evidence, but
+  weaker and more prone to rounding/misremembering.
+- No stated time at all means a genuinely blind search across the full
+  day, which behaves differently (see the next section) from searching
+  near an already-plausible anchor.
+
+This matters operationally, not just rhetorically: a documented time
+must be checked with the SAME direct rigor - real `rectif_technique`
+calls against the strongest events, not just its rank in an exploratory
+`rectif_scan` - as whatever candidate a search turns up as the top
+scorer, before concluding the two disagree. A real session (Salvador
+Dalí, 11.05.1904) initially dismissed a birth-certificate-sourced 8:45
+as unsupported, based only on its middling position in a wide exploratory
+scan - and, when directly re-checked with the same rigor given to the
+scan's top candidate, 8:45 turned out to show an aspect (0.003 degrees,
+exact) tighter than the one that had been presented as the winner. The
+error wasn't the scan - it was skipping the direct-verification step for
+the well-documented candidate specifically because the scan's coarse
+score made it look unnecessary. Never skip that step for a
+well-documented candidate, regardless of where it ranks in an
+exploratory pass.
+
+## Wide blind searches produce tight-looking coincidences more often - don't let that alone override a good source
+
+When no birth time is stated at all, a full-day search (as many as
+several hundred candidates, each compared against every event) is
+sometimes the only option - but it changes the odds. Testing hundreds
+of candidates against many events means SOME candidate will show a
+tight, thematically-plausible-sounding aspect somewhere in the day
+purely by chance - this is the same statistical phenomenon as multiple
+comparisons in any other field, not a flaw specific to this method.
+A tight orb found this way is real (the math is correct), but it carries
+less evidential weight per hit than the same tight orb found while
+checking a specific, independently-motivated candidate (a stated time,
+a prior technique's convergence point). When a wide blind search's top
+candidate conflicts with a well-documented stated time by several hours,
+the right response is not to trust the search's top hit by default - it
+is to give the documented time the same direct, event-by-event
+verification the search's winner already got (see previous section)
+before deciding there's a real conflict at all.
+
 ## Technique priority order
 
 1. **`rectif_trutina`** first, always - it's free (a handful of direct
