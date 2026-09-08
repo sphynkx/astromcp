@@ -51,10 +51,16 @@ wiki-side proxy block documented in the MediaWiki section below.
     │   ├── requirements.txt
     │   ├── astromcp.service    # systemd unit
     │   ├── .env.example        # documents all tunable settings
-    │   └── Module_Astrodata.lua  # MediaWiki Lua module - see "Integration
-    │                              # with MediaWiki" below. Kept in Russian
-    │                              # (the one exception to this project's
-    │                              # English-comments convention)
+    │   ├── Module_Astrodata.lua  # MediaWiki Lua module - see "Integration
+    │   │                          # with MediaWiki" below. Kept in Russian
+    │   │                          # (the one exception to this project's
+    │   │                          # English-comments convention)
+    │   ├── Module_ParseType.lua  # standalone: socionics dichotomy categories
+    │   │                          # from a 3-letter type code - no MCP/REST
+    │   │                          # calls, pure Lua
+    │   └── Deathmon.lua          # standalone: Wikidata death-date (P570)
+    │                              # monitoring - no MCP/REST calls either,
+    │                              # see "Wikidata death-monitoring module" below
     └── engine/
         ├── __init__.py
         ├── config.py           # .env-driven settings, with built-in defaults
@@ -533,6 +539,79 @@ relying on them being re-explained every time.
   events × (natal + technique)`. A 2-hour range at 1-minute resolution
   with 20 events is on the order of 2,400 chart builds - typically tens
   of seconds, well within the timeout configured in the reverse proxy.
+
+## Wikidata death-monitoring module: `install/Deathmon.lua`
+
+A small, **self-contained** MediaWiki Lua module - unrelated to
+astromcp's own MCP/REST endpoints, doesn't call this service at all.
+Checks whether a person has a death date (Wikidata property P570)
+recorded, by looking them up via a Russian-Wikipedia sitelink title
+through a `wikidata_api` Extension:ExternalData source. Meant for a
+"is anyone on my watchlist dead and I haven't noticed" monitoring page:
+call it once per person (bare, using the current page's own title, or
+with an explicit name) and it returns either `Умер (Дата: YYYY-MM-DD)`
+or `Жив (или нет данных о смерти)`.
+
+Requires this in `LocalSettings.php` (the exact shape matters - see the
+module's own comments for what happens if any one piece is missing):
+
+```php
+$wgExternalDataSources['wikidata_api'] = [
+    'url' => 'https://www.wikidata.org/w/api.php?action=wbgetentities&sites=ruwiki&props=claims&format=json&titles=$title$',
+    'format' => 'JSON with JSONpath',
+    'params' => ['title'],
+];
+```
+
+Called directly, no template wrapper needed:
+
+```
+{{#invoke:Deathmon|checkDeath}}                        <!-- current page's own title -->
+{{#invoke:Deathmon|checkDeath|Дали, Сальвадор}}         <!-- explicit name -->
+```
+
+Getting this working end-to-end surfaced four separate, independent
+bugs, each worth knowing about if this module (or something like it)
+is ever modified - none of them were guesses, all four were confirmed
+by directly dumping the raw fetched data via
+`mw.ext.externalData.getExternalData()` (bypassing the
+`#get_web_data`/`#external_value` string interface, which otherwise
+just shows a generic "variable not set" for every one of these):
+
+1. **`frame:getParent().args` vs `frame.args`** - a direct `#invoke`
+   (no wrapping template) has its arguments in `frame.args`, not
+   `frame:getParent().args` - the latter reads a *wrapping template's*
+   own parameters, which don't exist for a bare `#invoke`. Using the
+   wrong one meant an explicitly-passed name was always silently
+   ignored in favor of the current page's own title.
+2. **`*` as a JSON wildcard needs JSONPath mode explicitly turned on**
+   (`format => 'JSON with JSONpath'` on the source) - without it, `*`
+   is read as a literal, nonexistent key name and the path never
+   resolves, regardless of how the rest of the path is written.
+3. **`{QUERY}`-style curly-brace placeholders are not real
+   ExternalData syntax** - dynamic URL substitution uses
+   `$paramname$` (dollar-sign-wrapped), explicitly declared via
+   `'params' => [...]` on the source, with a matching parameter name
+   passed to `#get_web_data` (here, `title=`). `{QUERY}` was silently
+   sent to Wikidata as a literal string the entire time - this was the
+   actual root cause behind every other symptom in this investigation;
+   the other three fixes were all independently correct and necessary,
+   but none of them could have worked while this one was still broken.
+4. **Cyrillic/comma/space in the title need `mw.uri.encode()`** before
+   being used as a URL parameter value - ExternalData doesn't encode
+   substituted values itself. This one is easy to miss testing in a
+   browser (which silently auto-encodes whatever's pasted into the
+   address bar) - confirmed instead by running the exact same raw URL
+   through plain `curl`, which refuses it outright as malformed.
+5. **A missing P570 (no death date) isn't a plain empty value** - the
+   JSONPath simply fails to resolve, and `#external_value` returns
+   ExternalData's own "local variable not set" error text, which is a
+   *non-empty* string. Checking only `rawTime ~= ""` treated that error
+   text as if it were a real date. Fixed by checking that the value
+   actually looks like a Wikidata time value (starts with `+` or `-`,
+   the era sign Wikidata always includes) before trying to parse it as
+   one - anything else, including the error text, falls through to
+   "alive/no data" instead of being sliced into garbage.
 
 ## Horary astrology: `horary_chart`
 
