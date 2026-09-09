@@ -51,16 +51,13 @@ wiki-side proxy block documented in the MediaWiki section below.
     │   ├── requirements.txt
     │   ├── astromcp.service    # systemd unit
     │   ├── .env.example        # documents all tunable settings
-    │   ├── Module_Astrodata.lua  # MediaWiki Lua module - see "Integration
-    │   │                          # with MediaWiki" below. Kept in Russian
-    │   │                          # (the one exception to this project's
-    │   │                          # English-comments convention)
-    │   ├── Module_ParseType.lua  # standalone: socionics dichotomy categories
-    │   │                          # from a 3-letter type code - no MCP/REST
-    │   │                          # calls, pure Lua
-    │   └── Deathmon.lua          # standalone: Wikidata death-date (P570)
-    │                              # monitoring - no MCP/REST calls either,
-    │                              # see "Wikidata death-monitoring module" below
+    │   └── Mediawiki/          # everything MediaWiki-side - see
+    │                           # install/Mediawiki/README.md for all of it
+    │       ├── README.md
+    │       ├── Module_Astrodata.lua  # calls astromcp's own /astro REST endpoint
+    │       ├── Module_ParseType.lua  # standalone, no astromcp calls
+    │       ├── Deathmon.lua          # standalone, no astromcp calls
+    │       └── purge_deathmon.sh
     └── engine/
         ├── __init__.py
         ├── config.py           # .env-driven settings, with built-in defaults
@@ -341,154 +338,12 @@ broken image with a readable message beats a broken image with none.
 
 ## Integration with MediaWiki
 
-A ready-to-use Lua module lives at `install/Module_Astrodata.lua` -
-consumes `/astro` via the
-[External Data](https://www.mediawiki.org/wiki/Extension:External_Data)
-extension's `mw.ext.externalData.getExternalData` and `/astro/chart.svg`
-as an external-image link, and generates the Russian-language category
-tags described below. **This is the one file in the project kept in
-Russian rather than English** - it's Lua for a Russian-language wiki's
-editors to read and maintain directly, not Python for this project's own
-contributors, so the usual English-comments convention doesn't apply to
-it.
-
-### LocalSettings.php requirements
-
-External Data has no "named data source" indirection for Lua calls - the
-URL is always given directly in code, so the only real configuration
-needed is to allow-list wherever `BASE_URL` in the module actually
-resolves to.
-
-**As of this round, `BASE_URL` is `mw.site.server .. "/astro"` - the
-wiki's own domain, not the astromcp backend's address directly.** This
-depends on the wiki's own nginx reverse-proxying `/astro` straight
-through to the astromcp backend, e.g.:
-
-    location /astro {
-        proxy_pass http://192.168.7.3:8765;
-    }
-
-(this block goes in the **wiki's** nginx config, not astromcp's own -
-see the "Deployment" section below for astromcp's own nginx config,
-which is a separate, unrelated reverse proxy for astromcp's public
-domain). With this in place, `getExternalData` calls made by the wiki's
-own PHP (External Data fetches happen server-side, not in the visitor's
-browser) go out to the wiki's public domain and come back in via this
-proxy block - so the allow-list entry needs to match that domain, not
-the backend's internal address:
-
-    $edgAllowExternalDataFrom = array( 'https://sociowiki.sphynkx.org.ua/' );
-
-The previous round hardcoded the backend's internal IP directly
-(`192.168.7.3:8765`), bypassing the wiki's own nginx entirely - this
-was slightly more direct (one less proxy hop) but meant `BASE_URL`
-had to be edited by hand for every wiki/environment this module gets
-copied to, and the allow-list above had to reference the internal
-address specifically, which reads confusingly next to a
-publicly-facing wiki config. Deriving it from `mw.site.server` instead
-removes that hardcoding - the module now works unmodified on a
-staging copy of the wiki, a domain rename, etc. If the wiki server
-can't resolve its own public domain back to something local (so this
-round-trips out to the internet and back rather than staying
-internal), reverting `BASE_URL` to a literal internal IP is a one-line
-change back - see the comment directly above `BASE_URL` in the module.
-
-For `p.wheel()` (the SVG chart), MediaWiki also needs permission to render
-an `<img>` tag - its Sanitizer strips raw `<img>` from wikitext/module
-output by default:
-
-    $wgAllowImageTag = true;
-
-This is a narrow, purpose-built flag (unlike `$wgRawHtml`, it permits only
-the `<img>` tag, nothing else) and - importantly - side-steps a real
-MediaWiki core limitation: the alternative approach (a bare, unbracketed
-external-image URL, auto-embedded via `$wgAllowExternalImages`/
-`$wgAllowExternalImagesFrom`) depends on MediaWiki's own
-`EXT_IMAGE_REGEX` recognizing `.svg` as an image extension, which
-historically it did **not** by default (only `gif|png|jpg|jpeg` - see
-[phabricator T65806](https://phabricator.wikimedia.org/T65806); some
-installs needed a core patch to add `svg`). Whether your specific version
-has that fixed is not something to gamble on, so `p.wheel()` returns a
-literal `<img src="...">` tag and relies on `$wgAllowImageTag` instead,
-which has no such extension dependency.
-
-(If `$wgAllowImageTag` isn't an option on your install for some reason,
-the bare-URL external-image path is still worth trying as a fallback -
-`$wgAllowExternalImages = false; $wgAllowExternalImagesFrom = array('https://sociowiki.sphynkx.org.ua/');`
-plus a template call with **no** manual `[...]` brackets around the
-`{{#invoke:...}}` - but test it, since the `.svg`-recognition caveat
-above applies.)
-
-### Installing the module
-
-Create the wiki page `Module:Astrodata` and paste in the contents of
-`install/Module_Astrodata.lua`.
-
-### Calling it from a template
-
-The module reads `date`/`time`/`lat`/`lon`/`city`/`country`/`houses`/
-`name`/`place`/`photo`/`lots` from its own direct args and/or its parent
-frame's args (so both `{{#invoke:Astrodata|planetslist|date=...}}` and a
-template calling `{{#invoke:...}}` with already-named parameters work).
-Missing `date`, or missing both coordinates and a city, makes every
-function silently return `""` - no error text on the page, per the
-original design brief - so a template can call all five functions
-unconditionally without an `{{#if:}}` guard.
-
-    {{#invoke:Astrodata|planetslist
-      |date={{{Дата рождения}}} |time={{{Время рождения}}}
-      |lat={{{Широта рождения}}} |lon={{{Долгота рождения}}}
-      |city={{{Город рождения}}} |country={{{Страна рождения}}}
-    }}
-
-    {{#invoke:Astrodata|aspectslist | ... same params ... }}
-
-    {{#invoke:Astrodata|categories | ... same params ... }}
-
-    {{#invoke:Astrodata|wheel | ... same params ...,
-      optionally |name=... |place=... |photo={{{Изображение}}} }}
-
-    {{#invoke:Astrodata|deathCategories|date={{{Дата смерти}}}}}
-
-`city`/`country` are cleaned of `[[wikilink]]` markup internally, so
-passing them straight from wikitext fields is fine. `lat`/`lon` must be
-**decimal degrees with lat first, lon second** - a template that swaps
-them (this has happened once already) will silently geocode the wrong
-point whenever a page has explicit coordinates and no `city` fallback.
-
-`planetslist`/`aspectslist` render each point/aspect with its Unicode
-glyph rather than a spelled-out name - `planetslist` also shows an
-essential-dignity letter (domicile/exaltation/detriment/fall - see
-`PLANET_DIGNITY` in the module) between the glyph and the position, and
-`aspectslist` bolds aspects tighter than 1 degree.
-
-**Lots/Arabic Parts** (see the `/astro` README section above for the
-server-side framework) show up in `planetslist`, `aspectslist`, and
-`categories` automatically once the server returns a `json.lots` section
-- the module's `LOT` table (parallel to `PLANET`) maps a registered
-Lot's name to its display glyph/nominative/genitive, and `pointInfo()`
-looks up either table so aspect rendering doesn't care whether a point
-is a planet or a Lot. Only `part_of_fortune` is registered on the server
-by default; pass `|lots=part_of_fortune,other_name` to request others
-once they exist (see `engine/lots.py`). Adding a NEWLY-registered
-server-side Lot to the module's own display (glyph, name) is a one-line
-addition to the `LOT` table - the rest (table rows, aspect rows,
-categories) picks it up automatically since it all iterates `LOT_IDS`/
-`json.lots` generically rather than hardcoding `part_of_fortune`.
-
-`p.wheel()` names the downloadable file from the current page title
-(`Натал_<Заголовок,_с_подчёркиваниями>.svg`) - MediaWiki's standard
-"Фамилия, Имя Отчество" biography title convention maps onto this
-directly, no extra template parameter needed. `photo` should be a
-filename already uploaded to the wiki, without the leading `Файл:`/`File:`
-(exactly what a `{{{Изображение}}}` template parameter typically holds) -
-resolved via `Special:FilePath`, with `Unknown-person.png` as a fallback
-if that specific file doesn't exist and isn't itself missing. It returns
-a clickable image (wrapped in a link to the same SVG, so a reader can
-open it full-size out of a cramped infobox) - call it bare, with **no**
-manual `[...]` or `[[...]]` wrapping around the `{{#invoke:...}}`
-(wrapping it produces broken nested-bracket wikitext, since the module's
-own output already has its own bracket structure).
+Everything MediaWiki-side (Lua modules, ExternalData/LocalSettings.php
+configuration, template-calling conventions, the Wikidata death-date
+monitoring setup with its bot/cron pieces) has moved to
+[`install/Mediawiki/README.md`](install/Mediawiki/README.md) - it's a
+big enough topic, spanning three independent Lua modules and one shell
+script, to warrant its own document rather than a section of this one.
 
 ### How the LLM client learns the methodology
 
@@ -540,78 +395,15 @@ relying on them being re-explained every time.
   with 20 events is on the order of 2,400 chart builds - typically tens
   of seconds, well within the timeout configured in the reverse proxy.
 
-## Wikidata death-monitoring module: `install/Deathmon.lua`
+## Wikidata death-monitoring module: `install/Mediawiki/Deathmon.lua`
 
-A small, **self-contained** MediaWiki Lua module - unrelated to
-astromcp's own MCP/REST endpoints, doesn't call this service at all.
-Checks whether a person has a death date (Wikidata property P570)
-recorded, by looking them up via a Russian-Wikipedia sitelink title
-through a `wikidata_api` Extension:ExternalData source. Meant for a
-"is anyone on my watchlist dead and I haven't noticed" monitoring page:
-call it once per person (bare, using the current page's own title, or
-with an explicit name) and it returns either `Умер (Дата: YYYY-MM-DD)`
-or `Жив (или нет данных о смерти)`.
-
-Requires this in `LocalSettings.php` (the exact shape matters - see the
-module's own comments for what happens if any one piece is missing):
-
-```php
-$wgExternalDataSources['wikidata_api'] = [
-    'url' => 'https://www.wikidata.org/w/api.php?action=wbgetentities&sites=ruwiki&props=claims&format=json&titles=$title$',
-    'format' => 'JSON with JSONpath',
-    'params' => ['title'],
-];
-```
-
-Called directly, no template wrapper needed:
-
-```
-{{#invoke:Deathmon|checkDeath}}                        <!-- current page's own title -->
-{{#invoke:Deathmon|checkDeath|Дали, Сальвадор}}         <!-- explicit name -->
-```
-
-Getting this working end-to-end surfaced four separate, independent
-bugs, each worth knowing about if this module (or something like it)
-is ever modified - none of them were guesses, all four were confirmed
-by directly dumping the raw fetched data via
-`mw.ext.externalData.getExternalData()` (bypassing the
-`#get_web_data`/`#external_value` string interface, which otherwise
-just shows a generic "variable not set" for every one of these):
-
-1. **`frame:getParent().args` vs `frame.args`** - a direct `#invoke`
-   (no wrapping template) has its arguments in `frame.args`, not
-   `frame:getParent().args` - the latter reads a *wrapping template's*
-   own parameters, which don't exist for a bare `#invoke`. Using the
-   wrong one meant an explicitly-passed name was always silently
-   ignored in favor of the current page's own title.
-2. **`*` as a JSON wildcard needs JSONPath mode explicitly turned on**
-   (`format => 'JSON with JSONpath'` on the source) - without it, `*`
-   is read as a literal, nonexistent key name and the path never
-   resolves, regardless of how the rest of the path is written.
-3. **`{QUERY}`-style curly-brace placeholders are not real
-   ExternalData syntax** - dynamic URL substitution uses
-   `$paramname$` (dollar-sign-wrapped), explicitly declared via
-   `'params' => [...]` on the source, with a matching parameter name
-   passed to `#get_web_data` (here, `title=`). `{QUERY}` was silently
-   sent to Wikidata as a literal string the entire time - this was the
-   actual root cause behind every other symptom in this investigation;
-   the other three fixes were all independently correct and necessary,
-   but none of them could have worked while this one was still broken.
-4. **Cyrillic/comma/space in the title need `mw.uri.encode()`** before
-   being used as a URL parameter value - ExternalData doesn't encode
-   substituted values itself. This one is easy to miss testing in a
-   browser (which silently auto-encodes whatever's pasted into the
-   address bar) - confirmed instead by running the exact same raw URL
-   through plain `curl`, which refuses it outright as malformed.
-5. **A missing P570 (no death date) isn't a plain empty value** - the
-   JSONPath simply fails to resolve, and `#external_value` returns
-   ExternalData's own "local variable not set" error text, which is a
-   *non-empty* string. Checking only `rawTime ~= ""` treated that error
-   text as if it were a real date. Fixed by checking that the value
-   actually looks like a Wikidata time value (starts with `+` or `-`,
-   the era sign Wikidata always includes) before trying to parse it as
-   one - anything else, including the error text, falls through to
-   "alive/no data" instead of being sliced into garbage.
+Moved to
+[`install/Mediawiki/README.md`](install/Mediawiki/README.md#deathmon-wikidata-death-date-p570-monitoring)
+along with the rest of the MediaWiki-side documentation - covers both
+Lua functions, the required `LocalSettings.php` source, why category
+membership doesn't just update on its own (MediaWiki's job-queue/parser-
+cache mechanics), the bot-password + cron setup that works around that,
+and the full five-bug debugging history.
 
 ## Horary astrology: `horary_chart`
 
