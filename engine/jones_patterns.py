@@ -49,15 +49,24 @@ JONES_PLANET_NAMES = [
 # Orb used wherever a specific angular relationship needs to be checked
 # (e.g. "the two rim planets of a Bowl are opposite each other").
 #
-# WIDENED from an initial 9 deg after checking against real production
-# data: Jones' shapes are a coarse VISUAL characterization of the whole
-# wheel, not a precision aspect - a real Bowl/Bucket chart (e.g. Irina
-# Allegrova, 20.01.1952) had rim planets 18 deg off exact opposition,
-# which a tight orb rejected outright, kicking a clearly-shaped chart
-# into "Mixed". 20 deg is generous enough to catch that kind of real
-# case while still meaning something ("roughly opposite", not "anywhere
-# in the same half of the wheel").
-OPPOSITION_ORB = 20.0
+# WIDENED TWICE from an initial 9 deg, both times after checking against
+# real production data - Jones' shapes are a coarse VISUAL
+# characterization of the whole wheel, not a precision aspect:
+#   1) Irina Allegrova (20.01.1952) had rim planets 18 deg off exact
+#      opposition, which a 9 deg orb rejected outright, kicking a
+#      clearly Bucket-shaped chart into "Mixed". Widened to 20.
+#   2) Ksenia Sobchak (5.11.1981): occupied span 159.73 deg (rim
+#      planets 20.27 deg off exact opposition) - a visually unambiguous
+#      Bowl per independent cross-check against Astrodienst - missed
+#      BOTH the span threshold (needed >=160) and this orb (was 20.0)
+#      by the same 0.27 deg, and fell through into a Splay
+#      misclassification instead (see the fix to _check_splay below for
+#      the other half of that specific bug). Widened to 23 - generous
+#      enough to cover a further 3 deg of real-world slack beyond the
+#      already-widened case above, while still meaning something
+#      ("roughly opposite", not "anywhere in the same half of the
+#      wheel").
+OPPOSITION_ORB = 23.0
 # Orb used for "a lone planet/handle sits roughly in the middle of the
 # empty gap" (Sling/Bucket) - wider than OPPOSITION_ORB since "roughly
 # bisecting a wide gap" is an even looser condition than "roughly
@@ -146,8 +155,15 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
     if occupied_span <= 140.0:
         return {"figure": "bundle", "detail": f"all planets within {occupied_span:.1f} deg; empty gap {g_max:.1f} deg ({edge_a}->{edge_b})", "gaps": gaps_report}
 
-    # --- Clean Bowl (160-200 deg span, rim planets in opposition, gap empty) ---
-    if 160.0 <= occupied_span <= 200.0 and _is_opposition(longitudes[edge_a], longitudes[edge_b]):
+    # --- Clean Bowl (155-205 deg span, rim planets in opposition, gap empty) ---
+    # WIDENED from 160-200 after Ksenia Sobchak (5.11.1981) - occupied
+    # span 159.73 deg, a visually unambiguous Bowl cross-checked directly
+    # against Astrodienst, missed the old 160 lower bound by 0.27 deg and
+    # fell through into a Splay misclassification (see the _check_splay
+    # fix below for the other half of that bug). 155-205 gives 5 deg of
+    # real-world slack on a threshold that's a rough visual guideline to
+    # begin with, not a physical law.
+    if 155.0 <= occupied_span <= 205.0 and _is_opposition(longitudes[edge_a], longitudes[edge_b]):
         return {"figure": "bowl", "detail": f"all planets within {occupied_span:.1f} deg; rim planets {edge_a}/{edge_b} in opposition, empty gap {g_max:.1f} deg", "gaps": gaps_report}
 
     # --- Splay / See-Saw: checked from the RAW gap structure (no
@@ -198,7 +214,7 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
                     return {"figure": "sling",
                             "detail": f"bundle ({rem_span:.1f} deg) with a {handle_size}-planet handle ({', '.join(handle)}, in conjunction) standing apart in the gap",
                             "gaps": gaps_report}
-            elif 160.0 <= rem_span <= 200.0 and _is_opposition(remaining[rem_edge_a], remaining[rem_edge_b]):
+            elif 155.0 <= rem_span <= 205.0 and _is_opposition(remaining[rem_edge_a], remaining[rem_edge_b]):
                 if _handle_is_opposite(longitudes, handle, remaining):
                     return {"figure": "bucket",
                             "detail": f"bowl ({rem_span:.1f} deg span) plus a {handle_size}-planet handle ({', '.join(handle)}) opposite the main group",
@@ -319,17 +335,45 @@ def _check_splay(longitudes: Dict[str, float], gaps: List[Tuple[float, str, str]
     describe it. This implementation follows Jones' own English-sourced
     definition as the more authoritative/specific one.
 
-    A "cluster boundary" is any gap >= 30 deg; if that yields exactly
-    three clusters (three gaps >=30 deg, none of which is large enough
-    to itself qualify as a Bowl/Locomotive/Bundle-defining gap - already
-    excluded by this function only being reached after those checks
-    fail higher up), classify as Splay.
+    A "cluster boundary" is any gap >= 30 deg. Finding exactly three
+    such boundaries is necessary but NOT sufficient - each of the three
+    resulting clusters must also contain at least 2 planets. Without
+    this check, a lopsided chart (a large main mass with one or two
+    lone planets sitting just outside it, each more than 30 deg away)
+    was being misread as a genuine three-way tripod instead of falling
+    through to Bowl/Locomotive/Bucket, where a lone planet belongs (see
+    _handle_is_clustered and the Sling/Bucket logic above - that's
+    exactly the mechanism meant for "one stray planet near an otherwise
+    unified mass"). Confirmed as a real bug via a direct cross-check
+    against Astrodienst: Ksenia Sobchak (5.11.1981) has 8 planets in one
+    arc and Mars/the Moon sitting alone 37.6/48.6 deg to either side -
+    three gaps >=30 deg, satisfying the old check, but visually and
+    structurally a Bowl (occupied span 159.7 deg), not a tripod.
     """
-    big_gaps = [g for g, a, b in gaps if g >= 30.0]
-    if len(big_gaps) == 3:
+    big_gap_count = sum(1 for g, a, b in gaps if g >= 30.0)
+    if big_gap_count != 3:
+        return None
+
+    # Rotate the gap list to start right after a big gap, so a genuine
+    # cluster spanning the 0/360 wrap-around point isn't artificially
+    # split into two pieces by where the list happens to start.
+    start = next(i for i, (g, a, b) in enumerate(gaps) if g >= 30.0)
+    ordered = gaps[start + 1:] + gaps[:start + 1]
+
+    cluster_sizes: List[int] = []
+    big_gap_values: List[float] = []
+    current = 0
+    for g, a, b in ordered:
+        current += 1
+        if g >= 30.0:
+            cluster_sizes.append(current)
+            big_gap_values.append(g)
+            current = 0
+
+    if len(cluster_sizes) == 3 and all(size >= 2 for size in cluster_sizes):
         return {
             "figure": "splay",
-            "detail": f"three separate planet clusters (tripod), separated by gaps of {', '.join(f'{g:.1f}' for g in sorted(big_gaps, reverse=True))} deg",
+            "detail": f"three separate planet clusters (tripod, sizes {cluster_sizes}), separated by gaps of {', '.join(f'{g:.1f}' for g in sorted(big_gap_values, reverse=True))} deg",
             "gaps": [{"gap_deg": round(g, 3), "from": a, "to": b} for g, a, b in gaps],
         }
     return None
