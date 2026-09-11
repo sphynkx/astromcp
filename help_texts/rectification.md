@@ -148,10 +148,54 @@ before deciding there's a real conflict at all.
    subjectively knew it - the progression only activated later, when the
    news actually reached him). Use progressions for corroboration, not as
    the main search technique. Transits are good for confirming a
-   candidate against events with an exactly known date/time. Solar
-   returns are the most expensive technique computationally (see
-   "Performance" below) and are best used sparingly, as a tiebreaker on a
-   small number of already-narrowed candidates.
+   candidate against events with an exactly known date/time - **when the
+   event's own clock time is known, always pass it explicitly** (see
+   "Always pass the event's own known time..." below - this is
+   categorical, not optional). Solar returns are the most expensive
+   technique computationally (see "Performance" below) and are best used
+   sparingly, as a tiebreaker on a small number of already-narrowed
+   candidates.
+
+## Always pass the event's own known time to `target_hour`/`target_minute`/`target_second` for transits - never leave it to a default
+
+**This is categorical, not a style preference.** When running
+`technique="transit"` against an event whose own clock time is known
+(a death certificate, a launch time, any documented hour/minute), pass
+that exact time via `target_hour`/`target_minute`/`target_second` -
+never call the tool with only `target_day`/`target_month`/`target_year`
+and let it silently fall back to whatever default time it uses
+internally. This was discovered as a real, repeated omission during
+this project's own use of the tool (Vysotsky's session, 25.01.1938):
+the tool's transit call was assumed - never actually tested - not to
+accept an hour/minute for the target event, and every prior transit-at-
+death check in earlier sessions (Dalí, Solzhenitsyn, Einstein, de Funès
+- all cases where the exact death time WAS known and had been given)
+was run on whatever undocumented default time the tool falls back to
+when the parameters are omitted, not the real moment. Testing it
+directly settled the question: `target_hour`/`target_minute` ARE
+accepted and DO change the result meaningfully - not just the
+transiting planets' positions (which move slowly enough over a couple
+of hours that this alone is often minor), but the angles (Ascendant/MC)
+and house cusps, which move fast enough that a same-day but wrong-hour
+transit chart can show materially different, and sometimes misleading,
+aspects to the natal chart's angles. This was a usage error - an
+untested assumption about the tool that went unquestioned across
+several sessions - not a defect in the tool itself; the parameters had
+been there and working the whole time.
+
+Practical consequence: if a session's target event has a known time,
+supplying it is mandatory, not optional, exactly like the existing
+"Directions are mandatory for imprecise dates" rule below is mandatory
+for solar arc - the two rules cover opposite failure directions (that
+one is about not skipping an event for lacking precision; this one is
+about not discarding precision an event actually has). If the exact
+time is genuinely unknown, that's fine - transits on a date-only event
+are still worth running (see "Technique priority order" above) - but
+never let genuinely-available precision go unused by habit or
+assumption. Past sessions that made this omission were not retroactively
+recomputed (their conclusions rested on multiple independent lines of
+evidence, not the transit check alone), but any transit check run from
+this point forward must use the real time whenever one is available.
 
 ## Personal events take priority over public/career events
 
