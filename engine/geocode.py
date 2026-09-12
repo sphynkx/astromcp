@@ -173,6 +173,30 @@ RU_CITY_EXONYMS = {
     "стамбул": ["Istanbul"],
 }
 
+# Genuine Russian exonyms/colloquialisms for COUNTRIES - the same problem
+# as RU_CITY_EXONYMS above, one level up: Babel/CLDR's Locale("ru").territories
+# gives exactly ONE canonical display name per country (e.g. "Соединенные
+# Штаты" for the US, without "Америки" and without ё), with no aliases -
+# so extremely common Russian abbreviations/alternate spellings that
+# aren't themselves that canonical string fail to resolve, even though
+# they're everyday Russian usage. Confirmed empirically against a live
+# Babel install rather than assumed - a few common abbreviations (ОАЭ,
+# КНДР) happen to already BE the CLDR canonical name and need no entry
+# here; the ones below genuinely aren't. Keys lowercase. Extend as needed,
+# same as RU_CITY_EXONYMS - this was first found missing "США" itself.
+RU_COUNTRY_EXONYMS = {
+    "сша": "US",
+    "рф": "RU",
+    "юар": "ZA",
+    "кнр": "CN",
+    "англия": "GB",  # informal/imprecise (England != UK) but extremely common usage
+    "корея": "KR",  # ambiguous N/S in isolation - defaults to the far more commonly meant South Korea
+    "южная корея": "KR",
+    "северная корея": "KP",
+    "белоруссия": "BY",  # older/common spelling; CLDR's canonical is "Беларусь"
+    "молдавия": "MD",  # older/common spelling; CLDR's canonical is "Молдова"
+}
+
 _CYRILLIC_RE = re.compile("[\u0400-\u04FF]")
 
 # Simplified letter-by-letter Cyrillic -> Latin table (not a linguistic
@@ -209,16 +233,20 @@ def resolve_country_code(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
     v = value.strip()
-    if len(v) == 2 and v.isalpha():
+    if len(v) == 2 and v.isascii() and v.isalpha():
         return v.upper()
     key = v.lower()
     if key in _EN_COUNTRY_INDEX:
         return _EN_COUNTRY_INDEX[key]
     if key in _RU_COUNTRY_INDEX:
         return _RU_COUNTRY_INDEX[key]
+    if key in RU_COUNTRY_EXONYMS:
+        return RU_COUNTRY_EXONYMS[key]
     raise GeocodeError(
         f"Country '{value}' was not recognized as an ISO 3166-1 alpha-2 "
-        "code, an English country name, or a Russian country name."
+        "code, an English country name, a Russian country name (CLDR), "
+        "or a known Russian abbreviation/exonym - add it to "
+        "engine/geocode.py:RU_COUNTRY_EXONYMS if it's a real, commonly-used one."
     )
 
 
