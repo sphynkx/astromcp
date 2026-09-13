@@ -374,6 +374,27 @@ success rate to transfer.
   hour in spring-forward, the repeated hour in fall-back), don't rely on
   local-time resolution at all - compute the moment in UTC yourself and
   pass it with `tz_offset_minutes=0`.
+- **Pre-standardization births (before local/national timezone adoption -
+  Russia before 1919, Germany before 1893, France before 1911, the US
+  before 1883, etc.) use Local Mean Time (LMT) based on the birth
+  location's own longitude.** `tz_offset_minutes` only accepts whole-hour
+  offsets, so LMT (which is essentially never a whole hour) has to be
+  handled via an equivalent-shift workaround: pick a real whole-hour zone
+  (commonly the location's modern zone), compute the difference between
+  it and true LMT, and add that difference to every clock time before
+  running any calculation in that zone. This workaround is fine
+  computationally - the SAME calendar moment is being represented either
+  way - but it is real-world confusing, not just a formatting nicety: a
+  session that reports results in the shifted zone ("14:07") without
+  converting back makes the person tracking the case verify or record
+  the wrong number. **Always convert every reported candidate - the
+  running short-list, the final verdict, everything a person is meant to
+  read or copy down - back into true LMT before presenting it, and always
+  name the location it's LMT for** ("14:07 in the PST-equivalent working
+  zone" is an internal computation detail, not a result; "13:57 LMT,
+  San Francisco" is the result). Do this at each step along the way, not
+  only in a final summary - a person comparing two candidates mid-session
+  needs both already in the same, real units to compare them at all.
 
 ## Coordinates
 
