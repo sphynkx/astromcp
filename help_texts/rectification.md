@@ -2,17 +2,327 @@
 
 This is accumulated, hard-won practice from real rectification sessions
 with this service, cross-checked against a substantial survey of
-published Russian-language rectification literature (see "Sources"
-below). It is not a single author's doctrine - where sources disagree,
-that's noted explicitly rather than papered over. Deliberately excluded
-from this survey: anything by Pavel Globa, and Vedic/Indian astrology -
-per this project's explicit direction, not because of any technical flaw.
+published Russian-language rectification literature (see "Sources
+surveyed" at the end). It is not a single author's doctrine - where
+sources disagree, that's noted explicitly rather than papered over.
+Deliberately excluded from this survey: anything by Pavel Globa, and
+Vedic/Indian astrology - per this project's explicit direction, not
+because of any technical flaw.
+
+## How to use this document - read this section first, every single time
+
+**This file is binding operating instructions, not background reading
+to half-remember from earlier conversations.** Read it in full at the
+start of every rectification session - including a session that
+continues one already in progress - and follow it as a literal
+procedure. Do not rely on having "generally done this before": a prior
+session's habits, shortcuts, or which tools happened to get used are
+not a substitute for actually reading this document again. A real,
+documented failure mode: sessions drifted toward relying on two or three
+familiar tools while several implemented, source-documented techniques
+sat unused for long stretches, and an invented-scoring tool kept
+reappearing in final conclusions despite an explicit standing rule
+against it - not because either was ever decided to be the right call,
+but because the fuller method wasn't re-read and re-applied each time.
+That is a methodology failure, not a reasonable adaptation, and this
+document exists specifically to prevent it from happening by default.
+
+**Each rectification is an independent task, evaluated fresh.** Assume
+this may be a brand-new conversation with no memory of any other person
+ever rectified with this service, because it may genuinely be one - the
+person may open a new chat per person specifically to avoid carrying
+history across cases. Nothing about a DIFFERENT person's chart, an
+earlier session's numeric findings, or an earlier session's shortcuts
+should influence how thoroughly THIS person's case is worked. Every
+session gets the full method below, regardless of how many times it's
+been run before.
+
+**Time and tool-call budget are not a constraint on how much of this
+method gets applied.** A thorough rectification legitimately takes many
+dozens of tool calls across multiple techniques per event. That cost is
+accepted and expected - never shorten, skip, or reorder the sequence
+below to save time or effort. If a session's scope or the person's own
+stated preference genuinely calls for doing less than the full method,
+that is a decision to discuss explicitly and agree on with the person
+BEFORE proceeding - never a default to fall into silently.
+
+**This is analytical work, not a mechanical checklist.** At every step,
+actually reason about the event: what it concretely meant in this
+person's life, which houses/significators that meaning implies (see
+"Reasoning about which houses apply to an event" below), whether the
+source recording the event or the time is trustworthy. Running
+techniques without engaging with what they mean produces numbers, not a
+rectification.
+
+## Absolute rule: never invent a scoring or weighting scheme
+
+**It is forbidden to invent point systems, significance weights, or any
+other numeric scoring/ranking scheme not itself part of a named,
+documented rectification method, and forbidden to use one for counting,
+ranking, or deciding between candidates - under any framing, including
+"rough", "exploratory", or "just for orientation".** This rule has been
+stated before and was not followed reliably; it is restated here in the
+strongest terms because of that, not as a hypothetical.
+
+Concretely:
+
+- **`rectif_scan`'s `total_score`/per-event `score` fields must never be
+  read, cited, mentioned, or reasoned from - full stop.** Summing a
+  hit-count across unrelated events into one number and ranking
+  candidates by it is not a method any surveyed source uses; it was
+  invented for this service. An earlier, weaker version of this rule
+  allowed citing the score "if clearly labeled as exploratory" - that
+  carve-out was used repeatedly, across many real sessions, to justify
+  putting numbers like "балл 103" directly into final conclusions shown
+  to the person. The carve-out is withdrawn. `rectif_scan`'s sweep
+  mechanism (stepping through many candidate clock times in one call)
+  may still be used purely as a convenience, but only by reading
+  `include_full_table=true`'s real per-candidate aspect/orb values -
+  exactly as if each candidate had been checked with an individual
+  `rectif_technique` call - never its score. If that distinction makes
+  `rectif_scan` feel pointless to reach for, that is correct: prefer the
+  criterion-based tools in the inventory below, or direct
+  `rectif_technique` calls, in the first place.
+- **Do not assign a numeric `weight` to an event** based on a read of
+  the person's personality or which events seem more important. A chart
+  either shows a correspondence to an event or it doesn't; deciding in
+  advance how much an event "should" count is interpretation dressed up
+  as data. The `weight` field defaults to 1.0 and stays there unless the
+  person explicitly asks to experiment with it themselves.
+- **What this rule does NOT forbid**: a documented method's own literal,
+  published output is not "invented scoring", even when it involves a
+  count. `rectif_degree_clustering`'s frequency count (how many events'
+  transiting slow planets land on the same degree) is Israitel's and
+  Brady's own stated method - that count IS the technique, not a summed
+  heuristic layered on top of it. `rectif_movements_scan`'s "N of 3
+  movements concordant" is Grishchenyuk's own literal published
+  threshold. Reproducing a named author's rule and reporting exactly
+  what they say to report is the opposite of inventing one.
+
+## Complete inventory of implemented techniques - read this before choosing which to run
+
+Every technique below is real, callable, and expected to be used where
+it applies - per "Full mandatory sequence" further down, not
+cherry-picked. This list exists so a technique is never skipped simply
+because it wasn't remembered to exist; check against this list, not
+memory, at the start of a session.
+
+**`rectif_trutina`** - Jan Kefer's Trutina Hermetis (1939). No life
+events needed at all; run it first, always, even with a completely
+unknown birth time. Returns four independent branches (Moon above/below
+horizon, crossed with waxing/waning - two separate conditions, not
+synonyms). Pass the mother's own birth data when available (`mother_*`
+parameters) for the Jonas Rule refinement, which fixes the conception
+date via the mother's natal Sun-Moon angle instead of leaving ~10
+candidate conception dates per gestation window undecided.
+
+**`rectif_technique`** (single candidate, single event) and
+**`rectif_scan`**/**`rectif_scan_start`+`rectif_scan_result`** (many
+candidates swept at once, score fields ignored per the rule above) both
+dispatch on a `technique` string. All of the following are valid values
+- **all are available in `rectif_technique`; `rectif_scan` currently
+  supports `transit`, `secondary_progression`, `solar_arc`,
+  `solar_return`, `lunar_return`, and `profection` - use `rectif_technique`
+  directly for `primary_direction_zodiacal` and `relocated_transit`
+  across a sweep of candidates, one call per candidate**:
+
+- `"transit"` - real transiting planets at a real event date/time,
+  compared to the natal chart. **When the event's own clock time is
+  known, always pass it via `target_hour`/`target_minute`/`target_second`
+  - this is categorical, not optional** (see "Always pass known event
+  times" below). Good for cross-checking a candidate against a precisely
+  dated/timed event.
+- `"secondary_progression"` - "a day for a year": the chart cast for
+  the natal-day-plus-elapsed-years. Per B. Israitel, progressions
+  describe SUBJECTIVE, internally-experienced reactions to events, as
+  opposed to directions' objective description of the event itself
+  (documented example: a direction showed a client's father's death
+  before the client knew of it; the progression only activated once the
+  news actually reached him) - run alongside directions, not instead of
+  them, and don't expect it to peak exactly ON an event's own date for
+  that reason.
+- `"solar_arc"` - the classical Ptolemaic "key": the real transiting
+  Sun's actual motion since birth applied as a uniform arc to the whole
+  natal chart. **Mandatory for every event, including imprecisely-dated
+  ones** (see "Directions are mandatory for imprecise dates" below).
+  Special documented case: on a first marriage's date, the DIRECTED
+  Midheaven forming a tight (<=30 arcminute) aspect to the marriage
+  significator (Venus/Moon for a man, Sun/Mars for a woman, by day/night
+  birth respectively) is one of the most consistently attested single
+  rectification markers in the surveyed literature (Witte to Vronsky/
+  Semenko to Shestopalov) - **requires Koch houses**, not Placidus.
+- `"solar_return"` - the chart for the moment the transiting Sun exactly
+  returns to its natal degree in a given year. Computationally the most
+  expensive technique (see "Performance" below) - batch/scope
+  accordingly, but that is a performance note, not a reason to skip it.
+- `"lunar_return"` - the same mechanism as solar_return but for the
+  Moon, which recurs roughly every 27.3 days rather than once a year.
+  Pass a full target date (year+month+day), not just a year - the tool
+  resolves to whichever actual lunar return falls nearest that date and
+  reports the real instant used in `lunar_return_utc`; check that field
+  rather than assuming the return lands exactly on the target date.
+- `"profection"` - the Hellenistic annual/monthly profection technique.
+  Uses TRADITIONAL sign rulerships deliberately (Scorpio=Mars,
+  Aquarius=Saturn, Pisces=Jupiter - not modern outer-planet rulers),
+  because that is the doctrine this technique is historically computed
+  with.
+- `"primary_direction_zodiacal"` - Jan Kefer's zodiacal primary
+  direction, MC/IC only (the classical Ptolemaic key - 1 year=1 degree,
+  1 month=5 arcminutes, 6 days=1 arcminute - applied via right ascension
+  rather than ecliptic longitude directly). Scope is deliberately
+  MC/IC-only; Kefer's fuller method directs other points too via
+  spherical-trigonometry oblique ascension under the local pole, which
+  is not implemented.
+- `"relocated_transit"` - B. Hammerslaf's technique: for an event that
+  happened far from the birth location (300+ miles/a few hundred
+  kilometers is Hammerslaf's own rule of thumb), the person may respond
+  to a transit hitting the ANGLES of the chart relocated to where they
+  actually were, even when the birth-location angles miss it by a wide
+  margin. Rebuilds the natal chart's angles/houses at the relocated
+  coordinates (same birth instant), then compares real transiting
+  planets against those relocated angles.
+
+**Criterion-based tools** - each reproduces one named author's literal,
+published decision rule and reports which candidate time(s) satisfy it,
+not a ranking:
+
+- **`rectif_movements_scan`** - A. Grishchenyuk's three-movements rule
+  (secondary progression + "perfection"/30-degree-per-year symbolic
+  direction + transit; >=2 of 3 concordant is the source's own stated
+  threshold for ~100% confidence). Returns `qualifying_windows`
+  (contiguous time ranges), not a leaderboard. If a very high fraction of
+  the scanned range qualifies, the default orb is too loose to be
+  informative for that specific event alone - tighten the orb for that
+  call, or intersect with another event's qualifying windows, rather
+  than treating a near-total-qualification result as confirmation of
+  anything.
+- **`rectif_timoshenko_scan`** - I. Timoshenko's four-condition test for
+  one house at one event: the DIRECTED ruler must send a hard aspect
+  (0/90/180) to a natal house element, the DIRECTED cusp must likewise
+  send one, the NATAL ruler must receive one from a directed element,
+  the NATAL cusp must likewise receive one - all four required (an AND,
+  not a threshold). The source claims 10-30 second precision from this
+  combination; that specific claim has not been independently
+  re-verified by this implementation, only the mechanical test itself.
+- **`rectif_bonatti_scan`** - Guido Bonatti's method (via Kefer, 1939):
+  purely a Sun-affliction/angle rule, no life events needed at all. The
+  source's own explicit instruction is to use this only combined with
+  another correction, never alone - treat a qualifying window here as a
+  weak auxiliary signal to intersect with something stronger, not
+  standalone evidence.
+- **`rectif_herich_scan`** - Paul von Gerich's "Herich's number" (1929/
+  1930): a Sun/Moon/Saturn midpoint-chain formula against the angles (or
+  any house cusp). The source's own stated orb is 8 degrees, and even
+  its author acknowledged a possible discrepancy of that same size -
+  same caution as Bonatti's method: weak auxiliary only, never alone.
+- **`rectif_degree_clustering`** - B. Israitel's "condensation method"
+  and B. Brady's "graphic rectification" (closely related, sharing a
+  mechanism): tallies where TRANSITING slow planets (Mars through Pluto
+  plus the nodes - fast personal planets and the Moon are excluded as
+  too imprecise for this method) land, in absolute zodiacal degrees, on
+  the dates of many life events, and finds which degrees recur most
+  often. A recurring degree with no natal planet there is a candidate
+  ANGULAR house cusp. Unusually, **this method needs no birth time
+  scan at all** - only event dates - since it works from real transiting
+  positions on real dates; it produces a candidate DEGREE, which then
+  still needs a separate step to find what birth time would put that
+  degree on an angle. Israitel's version wants uncertainty already down
+  to 20-30 minutes or less before it's useful; Brady's wants ~15 angular
+  events (relationship/birth/death of close people specifically). The
+  frequency count this returns is the method's own literal output, not
+  invented scoring (see the rule above).
+
+**Documented but genuinely not implemented** - say so plainly if asked,
+rather than approximating under a different name: true primary
+directions for points other than MC/IC (the oblique-ascension machinery
+for the Ascendant and other points), Glahn's "harmony law".
+
+## Full mandatory sequence
+
+Apply this to every rectification, start to finish. Steps are ordered;
+do not reorder or skip without explicit prior discussion with the
+person (see "How to use this document" above).
+
+1. **Assess the source(s) for the stated birth time** (see "Assess
+   source quality" below) before running anything else - this shapes
+   how much weight a documented-but-unconfirmed time deserves relative
+   to what the search finds, not whether to search at all.
+2. **`rectif_trutina`**, always, with the mother's birth data if it can
+   be obtained (ask for it explicitly if not already given).
+3. **Gather personal events**: every marriage, divorce, child's birth,
+   and death of a close family member, asking explicitly for
+   approximate dates if not volunteered - including imprecisely-dated
+   ones. Do this before leaning on any public/career event (see
+   "Personal events take priority" below).
+4. **For every personal event with a known clock time**: sweep
+   `transit` across the full plausible natal-time window (the source's
+   own stated range if one exists, otherwise a sensibly wide default) at
+   roughly 5-minute steps, reading real aspects/orbs directly (never a
+   `rectif_scan` score). Then cross-check the same event with
+   `secondary_progression`.
+5. **For every personal event without a known clock time**: run the
+   full direction stack in order - `solar_arc`, `secondary_progression`,
+   `profection`, `lunar_return` - all four, not whichever comes to mind
+   first.
+6. **Run `rectif_movements_scan` for every event from steps 4-5**
+   alongside the individual technique checks, using `target_houses`
+   reasoned per-event (see "Reasoning about which houses apply" below)
+   and Koch houses. Where relevant, also run `rectif_timoshenko_scan`.
+7. **Public/career/minor events (awards, releases, appearances) still
+   get the full technique stack from steps 4-6** - not skipped, not
+   reserved for "important" events only. They are weighted lower in
+   confidence when reasoning about the outcome (see "Personal events
+   take priority" below), which is a difference in how much a result
+   moves the conclusion, never a reason to skip running the technique.
+8. **Intersect, never sum.** Take each event's qualifying windows/
+   direct-verified hits and intersect them across events - only keep
+   candidates that qualify for EVERY event checked (or report plainly
+   that nothing survives the intersection, and why). If personal and
+   public events' surviving sets disagree, prefer whichever is confirmed
+   more thoroughly and more tightly, and say so explicitly.
+9. **`rectif_bonatti_scan`, `rectif_herich_scan`, and, if enough events
+   exist, `rectif_degree_clustering`** as auxiliary cross-checks,
+   intersected with (never substituted for) the above.
+10. **Narrow with `step_seconds`** once a surviving window is small
+    enough (see "Attempt second-level precision" below).
+11. **Final direct re-verification**: individually re-check the
+    surviving candidate(s) against the strongest events using every
+    applicable technique from the full stack, not just transits, before
+    presenting an answer.
+12. **Report** using the format below.
+
+## Mandatory final report format
+
+The person must always be able to see the full process, not just a
+final number - report format is not optional cosmetic detail.
+
+Present, in this order:
+
+1. **Source assessment** - what was stated, how strong the source is,
+   and any alternative times under consideration.
+2. **Technique-by-technique results table**: for every technique
+   actually run (per the inventory above), list which one, which
+   event(s) it was run against, and its real result (qualifying
+   window(s), or the specific aspect/orb found by direct verification) -
+   not a score. Group by event if that reads more clearly for a
+   particular case (a list of events, each with its result under every
+   method applied to it) - either grouping is fine as long as every
+   technique's actual application and actual output is visible, not
+   summarized away.
+3. **Intersection/narrowing steps** - how the surviving candidate set
+   was reached from the individual results above, stated explicitly
+   enough that the narrowing itself could be checked by someone else.
+4. **Final verdict** - the resulting time range, and the single most
+   probable time within it if one is warranted (see "Attempt
+   second-level precision" and "Realistic expectations" below for when
+   a single point isn't warranted and a range should be reported
+   instead). State the location the time is given in (see "Timezones"
+   below - always true LMT with the location named, never an internal
+   working-zone shift left unconverted).
 
 ## Assess source quality before starting, and re-verify it as carefully as any winning candidate
 
-Not every stated birth time carries the same weight, and the very first
-step - before Trutina, before any scan - is sizing up what kind of
-claim is actually on the table:
+Not every stated birth time carries the same weight:
 
 - A birth certificate in hand, corroborated independently by a
   published autobiography AND a separate biography (Salvador Dalí's
@@ -60,149 +370,43 @@ is to give the documented time the same direct, event-by-event
 verification the search's winner already got (see previous section)
 before deciding there's a real conflict at all.
 
-## Technique priority order
+## Reasoning about which houses apply to an event
 
-1. **`rectif_trutina`** first, always - it's free (a handful of direct
-   calculations, not a scan) and needs zero life events. Run it before
-   anything else, even with completely unknown birth time. It follows Jan
-   Kefer's original 1939 formulation and returns FOUR branches (Moon
-   above/below horizon, independently combined with waxing/waning phase -
-   these are two separate conditions, not synonyms, despite some later
-   secondary sources conflating them). One or more branches may report
-   `cycle_detected: true` with a `cycle_candidates` list instead of a
-   single converged time - a genuine, documented property of the
-   classical method on some charts, not a bug. **If the mother's own
-   birth data is available, ask for it and pass it** - the Jonas Rule
-   refinement (mother_year etc. parameters) fixes the conception date
-   directly via the mother's natal Sun-Moon angle, removing the classical
-   method's single biggest weakness (roughly ten candidate conception
-   dates per gestation window that the classical rule alone can't tell
-   apart).
+"Elements of house" (Shestopalov/St.Petersburg Academy of Astrology
+school, formalized by S. Aizin) is the structural backbone for
+`target_houses` across most techniques above. For a house, its elements
+are: the ruler of the sign on the cusp, the co-ruler (ruler of the next
+sign, if the house extends more than ~13 degrees into it), and any natal
+planet actually sitting in that house.
 
-2. **"Elements of house" scoring** (Shestopalov/St.Petersburg Academy of
-   Astrology school, formalized by S. Aizin) is the structural backbone
-   for most of what follows. For a house, its elements are: the ruler of
-   the sign on the cusp, the co-ruler (ruler of the next sign, if the
-   house extends more than ~13 degrees into it), and any natal planet
-   actually sitting in that house. `rectif_scan` computes this
-   automatically per candidate when an event specifies `target_houses`
-   (a list of house numbers) instead of a fixed `target_points` list -
-   see engine/houses.py. **Classify which houses apply to an event by
-   reasoning through the chain of real-world consequences (Aizin's
-   method), not a rigid lookup table**: marriage isn't "just house 7" -
-   trace what actually changes (partnership=7, shared home=4, new social
-   circle=3, status=10, and so on depending on the specifics you're
-   told), and only include houses whose connection to the event is real
-   for that specific case. A worked derivation you can reuse directly:
-   relatives map onto "houses from houses" (a grandmother is 3rd-house
-   kin, but also the 4th-from-4th or 10th-from-10th depending on the
-   parent's side and the native's sex - i.e. 1st, 3rd or 7th house
-   depending on the case; work this out the same way for any relative,
-   not just grandparents). Modern rulerships are used here (not the
-   traditional set used by profections below) - this is the doctrine the
-   surveyed 20th-century Russian schools use for this specific technique.
+**Classify which houses apply to an event by reasoning through the chain
+of real-world consequences (Aizin's method), not a rigid lookup table**:
+marriage isn't "just house 7" - trace what actually changes
+(partnership=7, shared home=4, new social circle=3, status=10, and so on
+depending on the specifics you're told), and only include houses whose
+connection to the event is real for that specific case. A worked
+derivation to reuse directly: relatives map onto "houses from houses" (a
+grandmother is 3rd-house kin, but also the 4th-from-4th or 10th-from-10th
+depending on the parent's side and the native's sex - i.e. 1st, 3rd or
+7th house depending on the case; work this out the same way for any
+relative, not just grandparents). Modern rulerships are used here (not
+the traditional set used by profections) - this is the doctrine the
+surveyed 20th-century Russian schools use for this specific technique.
 
-3. **Profections** (`technique="profection"`). Traditional (Hellenistic)
-   sign rulerships are used deliberately - Scorpio=Mars, Aquarius=Saturn,
-   Pisces=Jupiter, not the modern outer-planet rulers - because that is
-   the doctrine profections are historically computed with; this is not
-   an arbitrary choice and should not be changed to "modern" rulerships.
+## Always pass known event times to `target_hour`/`target_minute`/`target_second`
 
-4. **Solar arc direction** (`technique="solar_arc"`, the classical "key of
-   Ptolemy") - degree-for-a-year, applied to the whole chart. A specific,
-   historically important special case worth running on its own even
-   outside a full scan: on the date of a first marriage, the DIRECTED
-   Midheaven (not progressed - true solar-arc-style direction) forming a
-   tight (30 arcminute or less) aspect to the marriage significator -
-   Venus/Moon for a man (day/night birth respectively), Sun/Mars for a
-   woman - is one of the most consistently documented single
-   rectification markers in the surveyed literature (traced through A.
-   Witte's Hamburg School founding work on the hypothetical body
-   "Cupido", via S. Vronsky and his student A. Semenko, to S.
-   Shestopalov's later popularization). This specific rule requires
-   **Koch houses**, not Placidus - the Shestopalov-school sources are
-   explicit that it does not transfer cleanly to other house systems.
-
-5. **True primary directions** (not yet implemented in this service under
-   that name - the Ptolemaic key is documented: 1 year = 1 degree of
-   arc, 1 month = 5 arcminutes, 6 days = 1 arcminute, measured via RIGHT
-   ASCENSION, not ecliptic longitude directly - ecliptic positions must
-   be converted to the equator first). Several other named auxiliary
-   methods exist in the classical literature with much weaker evidence
-   behind them and are not implemented: Bonatti's method (an angle is
-   the midpoint of Sun and a planet, or in conjunction with a planet if
-   the Sun is afflicted), Glahn's "harmony law", and "Herich's number" (a
-   formula from Sun+Moon+Saturn longitudes; even its own author
-   acknowledged an ~8 degree margin of error). Don't claim to perform
-   primary directions or these minor methods; if asked, say they're
-   documented but not yet implemented, rather than approximating them
-   under a different name.
-
-6. **Secondary progressions, transits, solar returns, and lunar returns
-   are cross-check tools with their own distinct documented meaning, all
-   of which must be run per "Full-technique, no-shortcuts workflow"
-   below - "secondary" here describes their relationship to directions
-   in classical priority, not permission to skip them.** This is a
-   formal distinction, not a stylistic preference: **directions describe
-   objectively verifiable events; progressions describe subjective,
-   internally-experienced reactions to them** (documented explicitly by
-   B. Israitel, with a striking example: a direction correctly showed a
-   client's father had died before the client subjectively knew it - the
-   progression only activated later, when the news actually reached
-   him). Transits are good for confirming a candidate against events
-   with an exactly known date/time - **when the event's own clock time
-   is known, always pass it explicitly** (see "Always pass the event's
-   own known time..." below - this is categorical, not optional). Solar
-   returns are the most expensive technique computationally (see
-   "Performance" below), so batch/scope them accordingly, but that's a
-   performance note, not a reason to skip them. Lunar returns
-   (`technique="lunar_return"`) recur roughly every 27.3 days rather than
-   once a year - pass a full target date (not just a year); the tool
-   resolves to whichever actual lunar return falls nearest that date and
-   reports the real instant used in its `lunar_return_utc` meta field, so
-   always check that instead of assuming it lands on the target date
-   itself.
-
-## Always pass the event's own known time to `target_hour`/`target_minute`/`target_second` for transits - never leave it to a default
-
-**This is categorical, not a style preference.** When running
-`technique="transit"` against an event whose own clock time is known
-(a death certificate, a launch time, any documented hour/minute), pass
-that exact time via `target_hour`/`target_minute`/`target_second` -
-never call the tool with only `target_day`/`target_month`/`target_year`
-and let it silently fall back to whatever default time it uses
-internally. This was discovered as a real, repeated omission during
-this project's own use of the tool (Vysotsky's session, 25.01.1938):
-the tool's transit call was assumed - never actually tested - not to
-accept an hour/minute for the target event, and every prior transit-at-
-death check in earlier sessions (Dalí, Solzhenitsyn, Einstein, de Funès
-- all cases where the exact death time WAS known and had been given)
-was run on whatever undocumented default time the tool falls back to
-when the parameters are omitted, not the real moment. Testing it
-directly settled the question: `target_hour`/`target_minute` ARE
-accepted and DO change the result meaningfully - not just the
-transiting planets' positions (which move slowly enough over a couple
-of hours that this alone is often minor), but the angles (Ascendant/MC)
-and house cusps, which move fast enough that a same-day but wrong-hour
-transit chart can show materially different, and sometimes misleading,
-aspects to the natal chart's angles. This was a usage error - an
-untested assumption about the tool that went unquestioned across
-several sessions - not a defect in the tool itself; the parameters had
-been there and working the whole time.
-
-Practical consequence: if a session's target event has a known time,
-supplying it is mandatory, not optional, exactly like the existing
-"Directions are mandatory for imprecise dates" rule below is mandatory
-for solar arc - the two rules cover opposite failure directions (that
-one is about not skipping an event for lacking precision; this one is
-about not discarding precision an event actually has). If the exact
-time is genuinely unknown, that's fine - transits on a date-only event
-are still worth running (see "Technique priority order" above) - but
-never let genuinely-available precision go unused by habit or
-assumption. Past sessions that made this omission were not retroactively
-recomputed (their conclusions rested on multiple independent lines of
-evidence, not the transit check alone), but any transit check run from
-this point forward must use the real time whenever one is available.
+**Categorical, not a style preference.** When running `technique="transit"`
+(or any technique accepting a target time) against an event whose own
+clock time is known (a death certificate, a launch time, any documented
+hour/minute), pass that exact time explicitly - never call the tool with
+only the date and let it silently fall back to a default. Confirmed
+directly in a real session: the parameters ARE accepted and DO change
+the result meaningfully - not just slow-moving transiting planets, but
+the angles (Ascendant/MC) and house cusps, which move fast enough that a
+same-day-wrong-hour transit chart can show materially different,
+sometimes misleading, aspects. If the exact time is genuinely unknown,
+running the technique on the date alone is still worthwhile - but never
+let genuinely-available precision go unused.
 
 ## Personal events take priority over public/career events
 
@@ -229,181 +433,46 @@ convenient) precisely because they're public - that convenience is not
 evidential strength. A person's own marriages, divorces, and children's
 births sit closer to the chart's own core significations (VII, V, and
 their rulers) than a film premiere or a channel launch does, and should
-be gathered and checked - via directions, per the requirement below,
-including every imprecisely-dated one - BEFORE leaning on a
-public-event-only convergence as a final answer. If the person hasn't
-volunteered this information, ask for it explicitly: dates of
-marriages/divorces and children's births, even approximate ones.
+be gathered and checked BEFORE leaning on a public-event-only
+convergence as a final answer. If the person hasn't volunteered this
+information, ask for it explicitly.
 
 This does not license assigning children/marriages a higher numeric
-`weight` - see "Never assign subjective event weights" below, which
-still applies. The priority here is about investigative order and
-which evidence to trust when two categories of events point to
-different candidates, not about feeding a different number into the
-scan.
+`weight` - see "Absolute rule: never invent a scoring or weighting
+scheme" above, which still applies. The priority here is about
+investigative order and which evidence to trust when two categories of
+events point to different candidates, not about feeding a different
+number into anything.
 
 ## Directions are mandatory for imprecise dates, not optional
 
 Every event with only a year, or a year+month, known - not just the
-precisely-dated ones - must still be run through direction-based
-checking (`technique="solar_arc"`, per the priority order above), using
-a reasonable specific day within the known range (documented as an
-assumption) rather than skipped for lack of precision. An imprecise
-date is exactly the situation directions are suited for: solar arc
-moves about 1 degree per year, so a day-level uncertainty within a
-known month, or a month-level uncertainty within a known year, changes
-the resulting arc by a small fraction of a degree - well inside normal
-orb tolerances - while still contributing real evidence. Skipping
-imprecise events because they "aren't exact enough" throws away
-information that directions can use perfectly well; it's the technique
-itself (transits, mainly) that needs exact dates, not directions.
+precisely-dated ones - must still be run through the full direction
+stack (see "Full mandatory sequence" step 5), using a reasonable
+specific day within the known range (documented as an assumption)
+rather than skipped for lack of precision. An imprecise date is exactly
+the situation directions are suited for: solar arc moves about 1 degree
+per year, so a day-level uncertainty within a known month, or a
+month-level uncertainty within a known year, changes the resulting arc
+by a small fraction of a degree - well inside normal orb tolerances -
+while still contributing real evidence. Skipping imprecise events
+because they "aren't exact enough" throws away information directions
+can use perfectly well; it's transits, mainly, that need exact dates,
+not directions.
 
 ## Attempt second-level precision, and say plainly when it isn't reached
 
 Once a candidate window has narrowed to a few minutes, always run a
-final `step_seconds` pass (via `rectif_scan` exploratory, then verify
-with direct `rectif_technique` calls) before presenting the answer,
-rather than stopping at minute-level by default. Report the outcome
-honestly either way: sometimes a real, narrow plateau or peak emerges
-(worth stating to the second); often, because the underlying events are
-dated without a time-of-day, the fine pass shows a flat plateau spanning
-a minute or more with no internal peak - that's a genuine property of
-the method's resolution given day-only event dates, not a failure to
-look hard enough, and should be reported as "minute-level precision" (with the plateau's actual width stated) rather than
-picking an arbitrary second within it to sound more precise than the
-evidence supports.
-
-## Never assign subjective event weights
-
-The `weight` field on scan events defaults to 1.0 and should stay that
-way. Do not invent "significance" weights based on your read of the
-person's personality or which events seem more important - this was
-tried and reversed. A natal chart either shows a correspondence to an
-event or it doesn't; deciding in advance how much an event "should" count
-is interpretation dressed up as data. If the person explicitly wants to
-experiment with weighting, that's their call to make explicitly
-per-event - not a default you apply.
-
-## No invented scoring - reproduce a documented criterion, or say you can't
-
-This is a stronger, later correction to the point above, and supersedes
-it where they'd conflict: it turned out that `rectif_scan`'s entire
-scoring mechanism - summing a hit-count across many events into one
-number, then ranking candidates by that number - is not a documented
-method from ANY surveyed source either. It was invented for this
-service, the same way per-event weights were, and was presented at one
-point as if agreement between two runs of it constituted real
-cross-validation. It doesn't, on its own: no author sums or ranks this
-way.
-
-**Revised again, stricter: `rectif_scan`'s score must never be cited,
-reported, or reasoned from - full stop, not "if clearly labeled as
-rough".** An earlier version of this rule still allowed the score for
-"rough exploration ... where might it be worth aiming a real check" -
-that carve-out was used, repeatedly and across many sessions, as an
-excuse to keep citing `total_score` numbers in the actual conclusions
-presented to the person (numbers like "балл 103" appearing directly in
-a final verdict), which is exactly the invented-scoring problem this
-section already existed to stop. The carve-out is withdrawn. If
-`rectif_scan`'s sweep mechanism is used at all (it may be, purely as a
-convenience for stepping through many candidate clock times in one call
-instead of dozens of separate `rectif_technique` calls), its
-`total_score`/per-event `score` fields are not read, not mentioned, and
-never enter the reasoning - only `include_full_table=true` output's
-real orb values do, exactly as if each candidate had been checked with
-an individual `rectif_technique` call. If that distinction feels like
-it defeats the purpose of using `rectif_scan` at all, that's correct -
-prefer `rectif_movements_scan` or direct `rectif_technique` calls in
-the first place; see "Full-technique, no-shortcuts workflow" below for
-the actual required sequence.
-
-**Going forward: reproduce a named author's literal decision rule, and
-report only the times that satisfy it - not a score, not a ranking.**
-`rectif_movements_scan` does this for Grishchenyuk's three-movements
-rule (>=2 of 3 movements concordant - the source's own threshold, not an
-invented one) and returns `qualifying_windows`, contiguous time ranges,
-not a leaderboard.
-
-**Combining evidence across multiple events**: not by summing or
-averaging. Get each event's qualifying windows/direct-verified hits, and
-intersect them - only keep candidates that qualify for EVERY event
-checked. This is the iterative-narrowing practice A. Budarovsky's worked
-example actually uses (a coarse candidate set, progressively eliminated
-event by event) and is also how S. Aizin's interval-intersection
-algorithm works. If several events' qualifying sets don't intersect at
-all, that's a real, informative result (the events are inconsistent with
-each other under this technique/house-system combination) - report it as
-such, don't fall back to picking whichever candidate scored highest on
-some invented metric.
-
-## Full-technique, no-shortcuts workflow - apply the complete method, every time, regardless of effort
-
-This section is binding, not a style suggestion. Rectification sessions
-had drifted toward relying almost exclusively on `rectif_scan` (an
-invented, non-authoritative tool - see above) plus plain transit/solar_arc
-`rectif_technique` calls, while `rectif_movements_scan`,
-`secondary_progression`, `profection`, and now `lunar_return` sat unused
-for long stretches despite being implemented and available. That drift
-is a real methodology failure - not a reasonable shortcut - and this
-section exists to make the full sequence explicit so it can't happen by
-default again. **How much time or how many tool calls this takes is not
-a reason to shorten it.**
-
-1. **Personal events with a known clock time: transit first.** For each
-   such event, sweep `rectif_technique(technique="transit", ...)` across
-   the full range of plausible natal birth times (start from the widest
-   defensible window - the source's own stated range if one exists,
-   otherwise a sensibly wide default) at roughly 5-minute steps, reading
-   each call's actual returned aspects and orbs directly (never a
-   `rectif_scan` score - see above). Note where genuinely tight,
-   thematically meaningful hits cluster. Then cross-check the SAME event
-   with `secondary_progression` and, once implemented, other applicable
-   movements - a transit-only reading is a first pass, not the finished
-   analysis.
-
-2. **Personal events without a known clock time: the full direction
-   stack, in order.** `solar_arc` first (per "Directions are mandatory
-   for imprecise dates" above), then `secondary_progression`, then
-   `profection`, then `lunar_return` - all four, not whichever one comes
-   to mind first. Each technique encodes a genuinely different
-   documented claim about how a chart responds to time (see "Technique
-   priority order" above for what distinguishes them) - skipping one
-   without a stated reason throws away a real, independent check, not
-   redundant effort.
-
-3. **Secondary/minor events (awards, album or film releases, routine
-   public appearances, and similar) still get the full technique stack**
-   - `secondary_progression` and `lunar_return` included, not reserved
-   for "important" events only. They're weighted lower in confidence
-   when reasoning about the result (a release date is often a marketing
-   decision, not a personally lived moment - see "Personal events take
-   priority" below), but that's a difference in how much the result
-   should move the conclusion, not a reason to skip running the
-   technique at all. Never decide a class of event is "not worth
-   checking" - decide, after checking, how much weight the result
-   deserves.
-
-4. **`rectif_movements_scan` (Grishchenyuk's 2-of-3 concordance) and any
-   other criterion-based, source-documented tool this service implements
-   are part of the standard sequence throughout the whole session, not
-   an optional extra reached for only when other methods disagree.** Run
-   it alongside the per-technique checks above for events where it
-   applies, and intersect its qualifying windows with the direct-
-   verification findings from steps 1-3, per the "Combining evidence"
-   rule above.
-
-5. **Never shorten, skip, or reorder this sequence unilaterally.** If a
-   session's scope or the person's own preference genuinely calls for
-   doing less than the full sequence, that is a decision to discuss and
-   agree on explicitly before proceeding - not a default to fall into
-   under time pressure or because a candidate already "looks confirmed."
-   Throughout, actually think about the event: what it really means for
-   this specific person, which houses/significators that meaning
-   implies, whether the source recording it is trustworthy - this is a
-   deliberate analytical judgment applied at each step, not a mechanical
-   loop over a checklist.
-
-
+final `step_seconds` pass before presenting the answer, rather than
+stopping at minute-level by default. Report the outcome honestly either
+way: sometimes a real, narrow plateau or peak emerges (worth stating to
+the second); often, because the underlying events are dated without a
+time-of-day, the fine pass shows a flat plateau spanning a minute or
+more with no internal peak - that's a genuine property of the method's
+resolution given day-only event dates, not a failure to look hard
+enough, and should be reported as "minute-level precision" (with the
+plateau's actual width stated) rather than picking an arbitrary second
+within it to sound more precise than the evidence supports.
 
 ## Realistic expectations
 
@@ -494,17 +563,10 @@ Wikidata (property P625: coordinate location) rather than guessing or
 relying on a possibly-outdated gazetteer. This also sidesteps the "small
 village not in the database" problem entirely.
 
-For events that happened far from the birth location (more than a few
-hundred kilometers/miles - B. Hammerslaf's rectification book uses 300
-miles as a rule of thumb), consider checking transits against the
-RELOCATED chart's angles (natal angles recomputed for the event's
-location, same birth moment) rather than only the natal-location angles -
-a person can respond to a transit hitting their relocated angle even
-when it misses the birth-location angle by a wide margin. Hammerslaf
-documents a real case where a transiting Jupiter offer-of-employment
-event missed the natal MC by several degrees but landed exactly on the
-MC of the chart relocated to where the person was actually living at the
-time. Not yet implemented as a dedicated technique in this service.
+For events that happened far from the birth location, use
+`technique="relocated_transit"` (see the technique inventory above) -
+B. Hammerslaf's rectification book uses 300 miles as a rule of thumb for
+when this matters - rather than only checking the natal-location angles.
 
 ## Performance / async
 
@@ -515,46 +577,8 @@ bigger - wide time ranges, many events, or ANY use of
 times more expensive than the other techniques and can push a full-day
 scan well past MCP/proxy timeouts even though the server keeps working) -
 use `rectif_scan_start` + poll `rectif_scan_result` instead of blocking on
-`rectif_scan`.
-
-## Practical scan workflow
-
-1. `rectif_trutina` for a free first estimate (ask for the mother's birth
-   data if at all possible, to enable the Jonas Rule refinement). Its
-   output is itself not a score - it's a direct solve, or an honestly
-   reported non-convergent cycle - so no conflict with the no-scoring
-   policy above.
-2. Gather personal events first (see "Personal events take priority"
-   above): every marriage, divorce, and child's birth, asking explicitly
-   if not already given, including imprecisely-dated ones. Go straight
-   into step 3 across the full plausible window - `rectif_scan`'s score
-   is never used as a preliminary pointer either; see "No invented
-   scoring" above, which withdrew that carve-out.
-3. Apply "Full-technique, no-shortcuts workflow" above in full: for each
-   personal event with a known clock time, sweep `rectif_technique`
-   transits directly (reading real orbs, not a score) plus
-   `secondary_progression`; for each without a known time, the full
-   direction stack (`solar_arc`, `secondary_progression`, `profection`,
-   `lunar_return`). Run `rectif_movements_scan` for every event
-   alongside these, using `target_houses` (reasoned per-event, see
-   above) and Koch houses. Take each event's qualifying
-   windows/direct-verified hits and intersect them across events,
-   narrowing the surviving candidate set - not by summing anything. If
-   personal and public events' surviving sets disagree, prefer whichever
-   is confirmed more thoroughly and more tightly (see above), and say so
-   explicitly rather than quietly picking one.
-4. Narrow further with a finer step (`step_seconds` supported) once a
-   surviving window is small - see "Attempt second-level precision"
-   above.
-5. Once a small set of candidates survives, re-verify each of them
-   individually against the strongest events using every applicable
-   technique from the full stack - not just transits - before presenting
-   a final answer. Include public/career events and minor ones too (see
-   "Full-technique, no-shortcuts workflow" point 3) - they're weighted
-   lower in confidence, not skipped.
-6. If different documented criteria disagree, or qualifying sets don't
-   intersect at all, say so explicitly rather than picking one silently -
-   see "Realistic expectations" above.
+`rectif_scan`. The same applies to `rectif_timoshenko_scan`/
+`rectif_bonatti_scan`/`rectif_herich_scan` over wide ranges.
 
 ## Sources surveyed
 
@@ -572,22 +596,26 @@ one 1939 classical text and one contemporary English-language book):
 - B. Israitel - directions-vs-progressions (objective/subjective)
   distinction, four direction speeds, event-to-significator tables,
   the "condensation method" (clustering transit degrees across many
-  events)
+  events) - implemented as `rectif_degree_clustering`
 - S. Kudyanov, A. Kolesnikov, V. Tkachenko - Trutina refinements
   including the Jonas Rule
 - Jan Kefer, Prakticka Astrologie (1939) - the original four-branch
-  Trutina formulation, plus Bonatti/Glahn/Herich/primary-direction
-  summaries
+  Trutina formulation, the zodiacal primary direction (MC/IC), plus
+  transcriptions of Bonatti's and Glahn's methods
 - V. Uranov - practical workflow, Placidus-based practice, event
   checklist
 - B. Brady - graphic/histogram rectification (clustering slow-planet
-  transit degrees across ~15 angular life events)
-- B. Hammerslaf - data collection practice, relocated charts, Uranian
-  45-degree/90-degree dial techniques
+  transit degrees across ~15 angular life events) - implemented as
+  `rectif_degree_clustering`, sharing a mechanism with Israitel's method
+- B. Hammerslaf - data collection practice, relocated charts
+  (implemented as `technique="relocated_transit"`), Uranian
+  45-degree/90-degree dial techniques (not implemented)
 - I. Timoshenko - a four-rule bidirectional aspect requirement (house
   ruler AND cusp must both send and receive at least one directed
   aspect each) combined with an interval-intersection search, claiming
-  second-level precision; not yet implemented in this service
+  second-level precision - implemented as `rectif_timoshenko_scan`; the
+  specific precision claim has not been independently re-verified, only
+  the mechanical test itself
 - V. Shatskaya - profective-MC + sidereal-time calculation, a real
   case confirmed independently by the client's mother
 - M. Levin - live transit-to-angle rectification practice; the heuristic
