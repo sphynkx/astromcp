@@ -24,7 +24,7 @@ from .chart import build_subject, natal_points_dict, subject_raw, resolve_fixed_
 from .houses import get_house_element_names
 from .techniques import (
     technique_transit, technique_secondary_progression, technique_solar_arc,
-    technique_solar_return, technique_profection,
+    technique_solar_return, technique_lunar_return, technique_profection,
 )
 from .aspects import compute_aspects
 from .constants import LUMINARY_NAMES
@@ -134,6 +134,16 @@ def run_scan(
                     n_raw, n_points,
                     house_system, zodiac_type,
                     ev["target_year"],
+                    ev.get("event_lat", natal_lat), ev.get("event_lng", natal_lng),
+                )
+                orb_tbl = ev.get("orb_table", config.DEFAULT_ORB_TABLE_TRANSIT)
+                bonus = ev.get("luminary_orb_bonus", config.LUMINARY_ORB_BONUS_TRANSIT)
+
+            elif technique == "lunar_return":
+                computed, natal_pts, meta = technique_lunar_return(
+                    n_raw, n_points,
+                    house_system, zodiac_type,
+                    ev["target_year"], ev["target_month"], ev["target_day"],
                     ev.get("event_lat", natal_lat), ev.get("event_lng", natal_lng),
                 )
                 orb_tbl = ev.get("orb_table", config.DEFAULT_ORB_TABLE_TRANSIT)

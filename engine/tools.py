@@ -17,7 +17,7 @@ from .chart import build_subject, serialize_subject, natal_points_dict, subject_
 from .aspects import compute_aspects
 from .techniques import (
     technique_transit, technique_secondary_progression, technique_solar_arc,
-    technique_solar_return, technique_profection,
+    technique_solar_return, technique_lunar_return, technique_profection,
     technique_primary_direction_zodiacal, technique_relocated_transit,
 )
 from .scan import run_scan
@@ -393,6 +393,14 @@ def rectif_technique(
                 n_raw, n_points,
                 house_system, zodiac_type,
                 target_year,
+                event_lat if event_lat is not None else natal_lat,
+                event_lng if event_lng is not None else natal_lng,
+            )
+        elif technique == "lunar_return":
+            computed, natal_pts, meta = technique_lunar_return(
+                n_raw, n_points,
+                house_system, zodiac_type,
+                target_year, target_month, target_day,
                 event_lat if event_lat is not None else natal_lat,
                 event_lng if event_lng is not None else natal_lng,
             )

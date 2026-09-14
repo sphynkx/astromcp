@@ -248,6 +248,97 @@ def technique_solar_return(
     }
 
 
+def _find_lunar_return_utc(
+    natal_moon_abs_pos: float,
+    target_year: int, target_month: int, target_day: int,
+    max_iterations: int = 15,
+    tolerance_deg: float = 1e-6,
+) -> datetime:
+    """
+    Finds the exact UTC datetime NEAREST the given target date at which the
+    transiting Moon's ecliptic longitude exactly equals natal_moon_abs_pos
+    (a lunar return moment). Unlike the solar return (recurs once a year,
+    anchored to the birthday), lunar returns recur roughly every 27.3 days
+    (one sidereal month) - so, unlike _find_solar_return_utc's
+    natal_month/natal_day/target_year signature, this is anchored to a full
+    TARGET DATE (the event being checked against), not a year, and finds
+    whichever lunar return actually falls closest to it, before or after.
+
+    Newton-iterates starting from the target date itself, using the Moon's
+    actual (non-constant, ~12-15 deg/day depending on where it is in its
+    elliptical orbit) speed at each step, the same way _find_solar_return_utc
+    uses the Sun's - starting the search AT the target date (rather than at
+    some fixed calendar anchor, which doesn't exist for a ~monthly cycle)
+    is what makes the iteration converge to the NEAREST return rather than
+    an arbitrary other one in the sequence.
+    """
+    guess_dt = datetime(target_year, target_month, target_day, 12, 0, 0)
+    for _ in range(max_iterations):
+        subj, _, _ = build_subject(
+            "lr_search", guess_dt.year, guess_dt.month, guess_dt.day,
+            guess_dt.hour, guess_dt.minute, guess_dt.second,
+            0.0, 0.0, None, 0, "P", "Tropic",
+        )
+        raw = subj.model_dump(mode="json")
+        cur_moon = raw["moon"]["abs_pos"]
+        speed = raw["moon"]["speed"] or 13.1764
+        diff = (natal_moon_abs_pos - cur_moon + 180) % 360 - 180  # signed, in [-180, 180)
+        if abs(diff) < tolerance_deg:
+            break
+        delta_days = diff / speed
+        guess_dt = guess_dt + timedelta(days=delta_days)
+    return guess_dt
+
+
+def technique_lunar_return(
+    natal_raw: Dict[str, Any],
+    natal_points: Dict[str, Dict[str, Any]],
+    house_system: str, zodiac_type: str,
+    target_year: int, target_month: int, target_day: int,
+    lr_lat: float, lr_lng: float,
+):
+    """
+    Lunar return: builds the chart for the exact moment the transiting Moon
+    returns to its natal position NEAREST the given target date, at
+    (lr_lat, lr_lng) (defaults to the natal location if the caller doesn't
+    relocate it). Angles are included in computed_points (unlike plain
+    transits), same convention as technique_solar_return - LR ASC/MC are a
+    standard part of lunar return analysis.
+
+    Unlike solar returns (one per year, keyed by target_year alone), lunar
+    returns recur roughly every 27.3 days - so this technique is keyed by a
+    full target date (the event being checked), and resolves to whichever
+    lunar return actually falls nearest that date, which the caller should
+    read back from the returned meta's "lunar_return_utc" rather than
+    assume equals the target date.
+    """
+    natal_moon_abs_pos = natal_raw["moon"]["abs_pos"]
+    lr_utc_dt = _find_lunar_return_utc(natal_moon_abs_pos, target_year, target_month, target_day)
+
+    lr_subject, _, _ = build_subject(
+        "lunar_return", lr_utc_dt.year, lr_utc_dt.month, lr_utc_dt.day,
+        lr_utc_dt.hour, lr_utc_dt.minute, lr_utc_dt.second,
+        lr_lat, lr_lng, None, 0, house_system, zodiac_type,
+    )
+    lr_raw = lr_subject.model_dump(mode="json")
+
+    computed = {p: lr_raw[p] for p in DEFAULT_POINTS if p in lr_raw}
+    for a in ANGLE_KEYS:
+        if a in lr_raw:
+            computed[a] = lr_raw[a]
+
+    return computed, natal_points, {
+        "lunar_return_utc": lr_utc_dt.isoformat(),
+        "lunar_return_location": {"lat": lr_lat, "lng": lr_lng},
+        "note": (
+            "nearest lunar return to the given target date (lunar returns "
+            "recur ~every 27.3 days, unlike the once-a-year solar return) - "
+            "not necessarily ON the target date itself; check "
+            "lunar_return_utc above for the actual moment used."
+        ),
+    }
+
+
 def technique_profection(
     natal_year: int, natal_month: int, natal_day: int,
     natal_raw: Dict[str, Any],

@@ -100,7 +100,7 @@ def rectif_technique(
     natal_tz_offset_minutes: Optional[int] = None,
     house_system: str = config.DEFAULT_HOUSE_SYSTEM,
     zodiac_type: str = config.DEFAULT_ZODIAC_TYPE,
-    technique: str = "transit",  # secondary_progression | solar_arc | solar_return | profection | primary_direction_zodiacal | relocated_transit | transit
+    technique: str = "transit",  # secondary_progression | solar_arc | solar_return | lunar_return | profection | primary_direction_zodiacal | relocated_transit | transit
     target_year: int = 2000, target_month: int = 1, target_day: int = 1,
     target_hour: int = 12, target_minute: int = 0, target_second: int = 0,
     angle_method: str = "solar_arc_naibod",  # for secondary_progression
@@ -227,14 +227,17 @@ def rectif_scan(
     For those, use rectif_scan_start + rectif_scan_result instead.
 
     Each event dict: {name, technique: "transit"|"secondary_progression"|
-    "solar_arc"|"solar_return"|"profection", target_year, target_month,
+    "solar_arc"|"solar_return"|"lunar_return"|"profection", target_year, target_month,
     target_day, target_hour?, target_minute?, target_second?, event_lat?,
     event_lng?, event_tz_str?, event_tz_offset_minutes?, angle_method?,
     weight?, aspect_set?, orb_table?, target_points?, target_houses?,
     orb_threshold?}. For technique="solar_return", only target_year is
-    used. For technique="profection", target_points/target_houses are
-    ignored (the technique fixes its own natal-side targets: lord of the
-    year/month, profected Asc).
+    used. For technique="lunar_return", target_year/target_month/target_day
+    together give the date to find the NEAREST lunar return to (lunar
+    returns recur ~every 27.3 days, not once a year like the solar return -
+    see engine/techniques.py:technique_lunar_return). For technique="profection",
+    target_points/target_houses are ignored (the technique fixes its own
+    natal-side targets: lord of the year/month, profected Asc).
 
     target_houses (list of house numbers, 1-12) is an alternative to
     target_points: instead of a fixed point list, the natal-side targets

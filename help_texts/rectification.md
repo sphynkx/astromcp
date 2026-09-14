@@ -138,23 +138,30 @@ before deciding there's a real conflict at all.
    documented but not yet implemented, rather than approximating them
    under a different name.
 
-6. **Secondary progressions, transits, and solar returns are secondary /
-   optional / cross-check tools, not primary rectification drivers.**
-   This is a formal distinction, not a stylistic preference: **directions
-   describe objectively verifiable events; progressions describe
-   subjective, internally-experienced reactions to them** (documented
-   explicitly by B. Israitel, with a striking example: a direction
-   correctly showed a client's father had died before the client
-   subjectively knew it - the progression only activated later, when the
-   news actually reached him). Use progressions for corroboration, not as
-   the main search technique. Transits are good for confirming a
-   candidate against events with an exactly known date/time - **when the
-   event's own clock time is known, always pass it explicitly** (see
-   "Always pass the event's own known time..." below - this is
-   categorical, not optional). Solar returns are the most expensive
-   technique computationally (see "Performance" below) and are best used
-   sparingly, as a tiebreaker on a small number of already-narrowed
-   candidates.
+6. **Secondary progressions, transits, solar returns, and lunar returns
+   are cross-check tools with their own distinct documented meaning, all
+   of which must be run per "Full-technique, no-shortcuts workflow"
+   below - "secondary" here describes their relationship to directions
+   in classical priority, not permission to skip them.** This is a
+   formal distinction, not a stylistic preference: **directions describe
+   objectively verifiable events; progressions describe subjective,
+   internally-experienced reactions to them** (documented explicitly by
+   B. Israitel, with a striking example: a direction correctly showed a
+   client's father had died before the client subjectively knew it - the
+   progression only activated later, when the news actually reached
+   him). Transits are good for confirming a candidate against events
+   with an exactly known date/time - **when the event's own clock time
+   is known, always pass it explicitly** (see "Always pass the event's
+   own known time..." below - this is categorical, not optional). Solar
+   returns are the most expensive technique computationally (see
+   "Performance" below), so batch/scope them accordingly, but that's a
+   performance note, not a reason to skip them. Lunar returns
+   (`technique="lunar_return"`) recur roughly every 27.3 days rather than
+   once a year - pass a full target date (not just a year); the tool
+   resolves to whichever actual lunar return falls nearest that date and
+   reports the real instant used in its `lunar_return_utc` meta field, so
+   always check that instead of assuming it lands on the target date
+   itself.
 
 ## Always pass the event's own known time to `target_hour`/`target_minute`/`target_second` for transits - never leave it to a default
 
@@ -289,31 +296,114 @@ point as if agreement between two runs of it constituted real
 cross-validation. It doesn't, on its own: no author sums or ranks this
 way.
 
+**Revised again, stricter: `rectif_scan`'s score must never be cited,
+reported, or reasoned from - full stop, not "if clearly labeled as
+rough".** An earlier version of this rule still allowed the score for
+"rough exploration ... where might it be worth aiming a real check" -
+that carve-out was used, repeatedly and across many sessions, as an
+excuse to keep citing `total_score` numbers in the actual conclusions
+presented to the person (numbers like "балл 103" appearing directly in
+a final verdict), which is exactly the invented-scoring problem this
+section already existed to stop. The carve-out is withdrawn. If
+`rectif_scan`'s sweep mechanism is used at all (it may be, purely as a
+convenience for stepping through many candidate clock times in one call
+instead of dozens of separate `rectif_technique` calls), its
+`total_score`/per-event `score` fields are not read, not mentioned, and
+never enter the reasoning - only `include_full_table=true` output's
+real orb values do, exactly as if each candidate had been checked with
+an individual `rectif_technique` call. If that distinction feels like
+it defeats the purpose of using `rectif_scan` at all, that's correct -
+prefer `rectif_movements_scan` or direct `rectif_technique` calls in
+the first place; see "Full-technique, no-shortcuts workflow" below for
+the actual required sequence.
+
 **Going forward: reproduce a named author's literal decision rule, and
 report only the times that satisfy it - not a score, not a ranking.**
 `rectif_movements_scan` does this for Grishchenyuk's three-movements
 rule (>=2 of 3 movements concordant - the source's own threshold, not an
-invented one) and returns `qualifying_times`, a chronological list, not a
-leaderboard. Prefer it (or another criterion-based tool, as they're
-added) over `rectif_scan` for anything you intend to draw a conclusion
-from. `rectif_scan` still exists and is not removed - it's fine for
-rough, clearly-labeled exploration ("where might it be worth aiming a
-real check") - but do not call its output "confirmed", do not call
-agreement between it and a real criterion "cross-validation", and do not
-present a `total_score` difference as evidence of anything.
+invented one) and returns `qualifying_windows`, contiguous time ranges,
+not a leaderboard.
 
 **Combining evidence across multiple events**: not by summing or
-averaging. Run the criterion once per event, get each event's
-`qualifying_times`, and intersect the sets - only keep candidates that
-qualify for EVERY event checked. This is the iterative-narrowing
-practice A. Budarovsky's worked example actually uses (a coarse
-candidate set, progressively eliminated event by event) and is also how
-S. Aizin's interval-intersection algorithm works. If several events'
-qualifying sets don't intersect at all, that's a real, informative
-result (the events are inconsistent with each other under this
-technique/house-system combination) - report it as such, don't fall
-back to picking whichever candidate scored highest on some invented
-metric.
+averaging. Get each event's qualifying windows/direct-verified hits, and
+intersect them - only keep candidates that qualify for EVERY event
+checked. This is the iterative-narrowing practice A. Budarovsky's worked
+example actually uses (a coarse candidate set, progressively eliminated
+event by event) and is also how S. Aizin's interval-intersection
+algorithm works. If several events' qualifying sets don't intersect at
+all, that's a real, informative result (the events are inconsistent with
+each other under this technique/house-system combination) - report it as
+such, don't fall back to picking whichever candidate scored highest on
+some invented metric.
+
+## Full-technique, no-shortcuts workflow - apply the complete method, every time, regardless of effort
+
+This section is binding, not a style suggestion. Rectification sessions
+had drifted toward relying almost exclusively on `rectif_scan` (an
+invented, non-authoritative tool - see above) plus plain transit/solar_arc
+`rectif_technique` calls, while `rectif_movements_scan`,
+`secondary_progression`, `profection`, and now `lunar_return` sat unused
+for long stretches despite being implemented and available. That drift
+is a real methodology failure - not a reasonable shortcut - and this
+section exists to make the full sequence explicit so it can't happen by
+default again. **How much time or how many tool calls this takes is not
+a reason to shorten it.**
+
+1. **Personal events with a known clock time: transit first.** For each
+   such event, sweep `rectif_technique(technique="transit", ...)` across
+   the full range of plausible natal birth times (start from the widest
+   defensible window - the source's own stated range if one exists,
+   otherwise a sensibly wide default) at roughly 5-minute steps, reading
+   each call's actual returned aspects and orbs directly (never a
+   `rectif_scan` score - see above). Note where genuinely tight,
+   thematically meaningful hits cluster. Then cross-check the SAME event
+   with `secondary_progression` and, once implemented, other applicable
+   movements - a transit-only reading is a first pass, not the finished
+   analysis.
+
+2. **Personal events without a known clock time: the full direction
+   stack, in order.** `solar_arc` first (per "Directions are mandatory
+   for imprecise dates" above), then `secondary_progression`, then
+   `profection`, then `lunar_return` - all four, not whichever one comes
+   to mind first. Each technique encodes a genuinely different
+   documented claim about how a chart responds to time (see "Technique
+   priority order" above for what distinguishes them) - skipping one
+   without a stated reason throws away a real, independent check, not
+   redundant effort.
+
+3. **Secondary/minor events (awards, album or film releases, routine
+   public appearances, and similar) still get the full technique stack**
+   - `secondary_progression` and `lunar_return` included, not reserved
+   for "important" events only. They're weighted lower in confidence
+   when reasoning about the result (a release date is often a marketing
+   decision, not a personally lived moment - see "Personal events take
+   priority" below), but that's a difference in how much the result
+   should move the conclusion, not a reason to skip running the
+   technique at all. Never decide a class of event is "not worth
+   checking" - decide, after checking, how much weight the result
+   deserves.
+
+4. **`rectif_movements_scan` (Grishchenyuk's 2-of-3 concordance) and any
+   other criterion-based, source-documented tool this service implements
+   are part of the standard sequence throughout the whole session, not
+   an optional extra reached for only when other methods disagree.** Run
+   it alongside the per-technique checks above for events where it
+   applies, and intersect its qualifying windows with the direct-
+   verification findings from steps 1-3, per the "Combining evidence"
+   rule above.
+
+5. **Never shorten, skip, or reorder this sequence unilaterally.** If a
+   session's scope or the person's own preference genuinely calls for
+   doing less than the full sequence, that is a decision to discuss and
+   agree on explicitly before proceeding - not a default to fall into
+   under time pressure or because a candidate already "looks confirmed."
+   Throughout, actually think about the event: what it really means for
+   this specific person, which houses/significators that meaning
+   implies, whether the source recording it is trustworthy - this is a
+   deliberate analytical judgment applied at each step, not a mechanical
+   loop over a checklist.
+
+
 
 ## Realistic expectations
 
@@ -436,26 +526,32 @@ use `rectif_scan_start` + poll `rectif_scan_result` instead of blocking on
    policy above.
 2. Gather personal events first (see "Personal events take priority"
    above): every marriage, divorce, and child's birth, asking explicitly
-   if not already given, including imprecisely-dated ones. Optionally, a
-   coarse `rectif_scan` run (clearly labeled as exploratory, per "No
-   invented scoring" above) to get a rough sense of where the real check
-   in step 3 might be worth aiming - or skip straight to step 3 across
-   the full day if you'd rather not rely on it at all.
-3. `rectif_movements_scan`, once per event - personal events first, then
-   public/career ones as corroboration - using `target_houses` (reasoned
-   per-event, see above) and Koch houses. Run every event regardless of
-   date precision (see "Directions are mandatory" above). Take each
-   event's `qualifying_times` and intersect them across events, narrowing
-   the surviving candidate set - not by summing anything. If personal
-   and public events' surviving sets disagree, prefer whichever is
-   confirmed more thoroughly and more tightly (see above), and say so
+   if not already given, including imprecisely-dated ones. Go straight
+   into step 3 across the full plausible window - `rectif_scan`'s score
+   is never used as a preliminary pointer either; see "No invented
+   scoring" above, which withdrew that carve-out.
+3. Apply "Full-technique, no-shortcuts workflow" above in full: for each
+   personal event with a known clock time, sweep `rectif_technique`
+   transits directly (reading real orbs, not a score) plus
+   `secondary_progression`; for each without a known time, the full
+   direction stack (`solar_arc`, `secondary_progression`, `profection`,
+   `lunar_return`). Run `rectif_movements_scan` for every event
+   alongside these, using `target_houses` (reasoned per-event, see
+   above) and Koch houses. Take each event's qualifying
+   windows/direct-verified hits and intersect them across events,
+   narrowing the surviving candidate set - not by summing anything. If
+   personal and public events' surviving sets disagree, prefer whichever
+   is confirmed more thoroughly and more tightly (see above), and say so
    explicitly rather than quietly picking one.
 4. Narrow further with a finer step (`step_seconds` supported) once a
    surviving window is small - see "Attempt second-level precision"
    above.
-5. Cross-check the surviving candidate(s) with `rectif_technique` calls
-   using transits on events with an exactly known date/time, and
-   optionally solar returns, before presenting a final answer.
+5. Once a small set of candidates survives, re-verify each of them
+   individually against the strongest events using every applicable
+   technique from the full stack - not just transits - before presenting
+   a final answer. Include public/career events and minor ones too (see
+   "Full-technique, no-shortcuts workflow" point 3) - they're weighted
+   lower in confidence, not skipped.
 6. If different documented criteria disagree, or qualifying sets don't
    intersect at all, say so explicitly rather than picking one silently -
    see "Realistic expectations" above.
