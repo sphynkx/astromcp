@@ -49,6 +49,8 @@ def run_three_movements_scan(
     transit_orb_deg: float = 3.0,
     scan_start_second: int = 0, scan_end_second: int = 59,
     step_seconds: Optional[int] = None,
+    event_lat: Optional[float] = None, event_lng: Optional[float] = None,
+    event_tz_str: Optional[str] = None, event_tz_offset_minutes: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     A. Grishchenyuk (1996), transcribing the Zaprjagaev -> Vronsky ->
@@ -85,7 +87,22 @@ def run_three_movements_scan(
     event's own clock time is known, always pass it here explicitly
     rather than leaving the noon default - see help_texts/rectification.md
     "Always pass known event times...".
+
+    event_lat/event_lng/event_tz_str/event_tz_offset_minutes locate and
+    time-zone the transit movement at the EVENT's own place, not the
+    birthplace (default when omitted: natal_lat/natal_lng, UTC+0 - this
+    matches the function's own prior hardcoded behavior, so omitting these
+    does not silently change results for existing callers). Getting the
+    event's civil time zone right matters here: with a known clock time,
+    interpreting it under the wrong offset shifts the transit moment used
+    for scoring by however many hours the offset is off by.
     """
+    if event_lat is None:
+        event_lat = natal_lat
+    if event_lng is None:
+        event_lng = natal_lng
+    if event_tz_str is None and event_tz_offset_minutes is None:
+        event_tz_offset_minutes = 0
     fixed_offset = resolve_fixed_offset_minutes(
         natal_tz_str, natal_tz_offset_minutes,
         natal_year, natal_month, natal_day, scan_start_hour, scan_start_minute, scan_start_second,
@@ -135,7 +152,7 @@ def run_three_movements_scan(
         transit_computed, transit_natal, _ = technique_transit(
             n_raw, n_points, target_year, target_month, target_day,
             target_hour, target_minute, target_second,
-            natal_lat, natal_lng, None, 0, house_system, zodiac_type,
+            event_lat, event_lng, event_tz_str, event_tz_offset_minutes, house_system, zodiac_type,
         )
         transit_hit = _has_hit(transit_computed, transit_natal, targets, transit_orb_deg)
 

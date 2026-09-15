@@ -106,12 +106,21 @@ def _run_secondary_progression_for_event(natal, cand_h, cand_m, cand_s, fixed_of
 
 
 def _run_transit_for_event(natal, n_raw, n_points, ev):
-    ev_tz_off = ev.get("tz_offset_minutes", 0)
+    # event_tz_str/event_tz_offset_minutes/event_lat/event_lng are the field
+    # names used everywhere else (scan.py, the technique functions, the MCP
+    # tool params) - this used to read the wrong key ("tz_offset_minutes")
+    # and ignore location entirely, silently defaulting to UTC+0 at the
+    # natal birthplace for every event regardless of what was supplied.
+    ev_tz_str = ev.get("event_tz_str")
+    ev_tz_off = ev.get("event_tz_offset_minutes")
+    if ev_tz_str is None and ev_tz_off is None:
+        ev_tz_off = 0
     computed, natal_pts, meta = technique_transit(
         n_raw, n_points,
         ev["year"], ev["month"], ev["day"],
         ev.get("hour", 12), ev.get("minute", 0), ev.get("second", 0),
-        natal["lat"], natal["lng"], None, ev_tz_off,
+        ev.get("event_lat", natal["lat"]), ev.get("event_lng", natal["lng"]),
+        ev_tz_str, ev_tz_off,
         natal["house_system"], natal.get("zodiac_type", "Tropic"),
     )
     aspects = compute_aspects(
@@ -126,14 +135,18 @@ def _run_transit_for_event(natal, n_raw, n_points, ev):
 
 
 def _run_profection_for_event(natal, n_raw, n_points, ev):
-    ev_tz_off = ev.get("tz_offset_minutes", 0)
+    ev_tz_str = ev.get("event_tz_str")
+    ev_tz_off = ev.get("event_tz_offset_minutes")
+    if ev_tz_str is None and ev_tz_off is None:
+        ev_tz_off = 0
     computed, natal_pts, meta = technique_profection(
         natal["year"], natal["month"], natal["day"],
         n_raw, n_points,
         natal["house_system"], natal.get("zodiac_type", "Tropic"),
         ev["year"], ev["month"], ev["day"],
         ev.get("hour", 12), ev.get("minute", 0), ev.get("second", 0),
-        natal["lat"], natal["lng"], None, ev_tz_off,
+        ev.get("event_lat", natal["lat"]), ev.get("event_lng", natal["lng"]),
+        ev_tz_str, ev_tz_off,
     )
     aspects = compute_aspects(
         computed, natal_pts, config.DEFAULT_ASPECT_SET,
@@ -151,7 +164,7 @@ def _run_lunar_return_for_event(natal, n_raw, n_points, ev):
         n_raw, n_points,
         natal["house_system"], natal.get("zodiac_type", "Tropic"),
         ev["year"], ev["month"], ev["day"],
-        natal["lat"], natal["lng"],
+        ev.get("event_lat", natal["lat"]), ev.get("event_lng", natal["lng"]),
     )
     aspects = compute_aspects(
         computed, natal_pts, config.DEFAULT_ASPECT_SET,
@@ -380,6 +393,8 @@ def run_rectification_pipeline(
                 ev.get("hour", 12), ev.get("minute", 0), ev.get("second", 0),
                 ev.get("target_houses"), None,
                 direction_orb_deg, transit_orb_deg,
+                event_lat=ev.get("event_lat"), event_lng=ev.get("event_lng"),
+                event_tz_str=ev.get("event_tz_str"), event_tz_offset_minutes=ev.get("event_tz_offset_minutes"),
             )
             return name, r
         except Exception as e:

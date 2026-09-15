@@ -60,7 +60,7 @@ Known limitations of the classical method itself (not this implementation):
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime, timedelta
 
-from .chart import build_subject, resolve_fixed_offset_minutes, offset_minutes_to_tz_str
+from .chart import build_subject, resolve_fixed_offset_minutes, describe_utc_offset
 
 
 def _find_ascendant_datetime(
@@ -397,7 +397,7 @@ def run_trutina_hermetis(
     return {
         "method": "trutina_hermetis",
         "source": "Jan Kefer, Prakticka Astrologie (1939); day-count magnitude per W. Lilly / A. Grishchenyuk",
-        "tz_used": offset_minutes_to_tz_str(fixed_offset),
+        "tz_used": describe_utc_offset(fixed_offset),
         "fixed_offset_minutes": fixed_offset,
         "jonas_rule_applied": mother_elongation is not None,
         "note": (

@@ -30,7 +30,7 @@ HARD_ASPECTS = (0, 90, 180)
 def is_sun_afflicted(natal_raw: Dict[str, Any], orb_deg: float = 8.0) -> bool:
     sun_pos = natal_raw["sun"]["abs_pos"]
     for malefic in MALEFICS_FOR_AFFLICTION:
-        if malefic not in natal_raw:
+        if natal_raw.get(malefic) is None:
             continue
         sep = angular_separation(sun_pos, natal_raw[malefic]["abs_pos"])
         for aspect_deg in HARD_ASPECTS:
@@ -62,14 +62,14 @@ def check_bonatti(
 
         if afflicted:
             for point in points:
-                if point == "sun" or point not in natal_raw:
+                if point == "sun" or natal_raw.get(point) is None:
                     continue
                 sep = angular_separation(angle_pos, natal_raw[point]["abs_pos"])
                 if sep <= orb_deg:
                     matches.append({"angle": angle_key, "planet": point, "case": "conjunction", "orb": round(sep, 4)})
         else:
             for point in points:
-                if point == "sun" or point not in natal_raw:
+                if point == "sun" or natal_raw.get(point) is None:
                     continue
                 planet_pos = natal_raw[point]["abs_pos"]
                 # Midpoint of Sun and planet - check both possible midpoints

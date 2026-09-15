@@ -36,7 +36,7 @@ from datetime import datetime
 from .chart import build_subject
 from .aspects import angular_separation
 
-CLUSTERING_POINTS = ["mars", "jupiter", "saturn", "uranus", "neptune", "pluto", "mean_node", "true_node"]
+CLUSTERING_POINTS = ["mars", "jupiter", "saturn", "uranus", "neptune", "pluto", "mean_north_lunar_node", "true_north_lunar_node"]
 
 
 def collect_transiting_degrees(
@@ -67,7 +67,7 @@ def collect_transiting_degrees(
         )
         raw = subject.model_dump(mode="json")
         for point in CLUSTERING_POINTS:
-            if point in raw:
+            if raw.get(point) is not None:
                 deg = raw[point]["abs_pos"]
                 rounded = round(deg / round_to_deg) * round_to_deg
                 records.append({"event_index": i, "point": point, "abs_pos_rounded": rounded % 360})
@@ -100,7 +100,7 @@ def build_degree_histogram(
         natal_lat, natal_lng, None, 0, "P", "Tropic",
     )
     natal_raw = natal_subject.model_dump(mode="json")
-    natal_occupied_degrees = [natal_raw[p]["abs_pos"] for p in CLUSTERING_POINTS if p in natal_raw]
+    natal_occupied_degrees = [natal_raw[p]["abs_pos"] for p in CLUSTERING_POINTS if natal_raw.get(p) is not None]
 
     def near_natal_planet(deg: float) -> bool:
         for occ in natal_occupied_degrees:

@@ -28,7 +28,7 @@ def technique_transit(
         event_lat, event_lng, event_tz_str, event_tz_offset_minutes, house_system, zodiac_type,
     )
     transit_raw = transit_subject.model_dump(mode="json")
-    computed = {p: transit_raw[p] for p in DEFAULT_POINTS if p in transit_raw}
+    computed = {p: transit_raw[p] for p in DEFAULT_POINTS if transit_raw.get(p) is not None}
 
     return computed, natal_points, {
         "event_tz_used": ev_resolved_tz,
@@ -61,7 +61,7 @@ def technique_secondary_progression(
     )
     prog_raw = prog_subject.model_dump(mode="json")
 
-    computed = {p: prog_raw[p] for p in DEFAULT_POINTS if p in prog_raw}
+    computed = {p: prog_raw[p] for p in DEFAULT_POINTS if prog_raw.get(p) is not None}
 
     if angle_method == "direct_progressed_angles":
         for a in ANGLE_KEYS + HOUSE_KEYS:
@@ -113,7 +113,7 @@ def technique_solar_arc(
 
     computed = {}
     for key in DEFAULT_POINTS + ANGLE_KEYS + HOUSE_KEYS:
-        if key in natal_raw:
+        if natal_raw.get(key) is not None:
             base = dict(natal_raw[key])
             base = recompute_sign_fields(base, base["abs_pos"] + arc)
             base["speed"] = 1.0
@@ -161,7 +161,7 @@ def technique_symbolic_direction(
 
     computed = {}
     for key in DEFAULT_POINTS + ANGLE_KEYS + HOUSE_KEYS:
-        if key in natal_raw:
+        if natal_raw.get(key) is not None:
             base = dict(natal_raw[key])
             base = recompute_sign_fields(base, base["abs_pos"] + arc)
             base["speed"] = 1.0
@@ -237,7 +237,7 @@ def technique_solar_return(
     )
     sr_raw = sr_subject.model_dump(mode="json")
 
-    computed = {p: sr_raw[p] for p in DEFAULT_POINTS if p in sr_raw}
+    computed = {p: sr_raw[p] for p in DEFAULT_POINTS if sr_raw.get(p) is not None}
     for a in ANGLE_KEYS:
         if a in sr_raw:
             computed[a] = sr_raw[a]
@@ -322,7 +322,7 @@ def technique_lunar_return(
     )
     lr_raw = lr_subject.model_dump(mode="json")
 
-    computed = {p: lr_raw[p] for p in DEFAULT_POINTS if p in lr_raw}
+    computed = {p: lr_raw[p] for p in DEFAULT_POINTS if lr_raw.get(p) is not None}
     for a in ANGLE_KEYS:
         if a in lr_raw:
             computed[a] = lr_raw[a]
@@ -398,7 +398,7 @@ def technique_profection(
         event_lat, event_lng, event_tz_str, event_tz_offset_minutes, house_system, zodiac_type,
     )
     transit_raw = transit_subject.model_dump(mode="json")
-    computed = {p: transit_raw[p] for p in DEFAULT_POINTS if p in transit_raw}
+    computed = {p: transit_raw[p] for p in DEFAULT_POINTS if transit_raw.get(p) is not None}
 
     profection_targets = {}
     if annual_lord in natal_raw:
@@ -547,7 +547,7 @@ def technique_relocated_transit(
         event_lat, event_lng, event_tz_str, event_tz_offset_minutes, house_system, zodiac_type,
     )
     transit_raw = transit_subject.model_dump(mode="json")
-    computed = {p: transit_raw[p] for p in DEFAULT_POINTS if p in transit_raw}
+    computed = {p: transit_raw[p] for p in DEFAULT_POINTS if transit_raw.get(p) is not None}
 
     return computed, relocated_points, {
         "relocated_to": {"lat": relocate_lat, "lng": relocate_lng},

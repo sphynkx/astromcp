@@ -63,7 +63,13 @@ def get_planets_in_house(natal_raw: Dict[str, Any], house_num: int,
                           points: Iterable[str] = DEFAULT_POINTS) -> List[str]:
     """Returns the names of all natal points physically located in the given house."""
     house_name = HOUSE_NAME_BY_NUM[house_num]
-    return [p for p in points if natal_raw.get(p, {}).get("house") == house_name]
+    # natal_raw.get(p, {}) is NOT enough here: some DEFAULT_POINTS (e.g.
+    # mean_lilith on some subjects) come back present in natal_raw with
+    # value None rather than absent - dict.get's default only kicks in
+    # when the key is missing, not when its value is None, so a bare
+    # `.get(p, {})` still returns None for those and crashes on the next
+    # `.get("house")`. `or {}` catches both "missing" and "present but None".
+    return [p for p in points if (natal_raw.get(p) or {}).get("house") == house_name]
 
 
 def get_house_element_names(

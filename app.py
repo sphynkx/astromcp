@@ -1024,7 +1024,17 @@ def rectif_pipeline(
         techniques apply;
       target_houses (list[int]) — houses relevant to this event (required);
       category ("personal"|"career"|"minor") — for priority weighting in
-        the report (not in computation).
+        the report (not in computation);
+      event_lat/event_lng (float, optional) — where the event happened, if
+        not the birthplace; defaults to natal_lat/natal_lng when omitted;
+      event_tz_str/event_tz_offset_minutes (optional) — the event's own
+        civil time zone (matters for transit/profection, which are time-
+        of-day sensitive); defaults to UTC+0 when neither is given. Get
+        this right for any event with a known clock time — an event whose
+        location or time zone genuinely differs from the birthplace (a
+        different city, a historical LMT/pre-standard-time offset, etc.)
+        and is left at the defaults will be silently transit-scored at
+        the wrong civil time.
 
     `candidate_times` (optional) — explicit [{hour, minute, second}, ...]
     to verify; if omitted, derived from intersection + scan midpoint.

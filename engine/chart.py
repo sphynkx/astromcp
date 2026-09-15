@@ -1,7 +1,7 @@
 """Subject construction, serialization, and timezone helpers."""
 
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from kerykeion import AstrologicalSubjectFactory
@@ -14,17 +14,35 @@ def offset_minutes_to_tz_str(offset_minutes: int) -> str:
     Converts a whole-hour UTC offset into a fixed IANA zone of the form Etc/GMT+-N.
     IMPORTANT: Etc/GMT sign convention is INVERTED relative to common usage:
     Etc/GMT-8 means UTC+8, and Etc/GMT+5 means UTC-5.
-    Only works for whole-hour offsets. For half-hour/quarter-hour offsets,
-    pass tz_str as an explicit IANA zone instead.
+    Only works for whole-hour offsets. Non-whole-hour offsets (e.g. Local Mean
+    Time before a location adopted standard zones) are not representable as an
+    Etc/GMT name at all - build_subject() routes those through
+    from_iso_utc_time() instead of through this helper, so this function should
+    never be called with one. The ValueError below is a defensive guard against
+    call sites that bypass build_subject and try to use this helper directly.
     """
     if offset_minutes % 60 != 0:
         raise ValueError(
             f"offset_minutes={offset_minutes} is not a multiple of 60 - "
-            "Etc/GMT does not support half-hour offsets, pass tz_str directly"
+            "Etc/GMT does not support fractional-hour offsets; call build_subject() "
+            "(which handles this case via from_iso_utc_time) rather than converting "
+            "to a tz_str directly"
         )
     hours = offset_minutes // 60
     sign = "-" if hours >= 0 else "+"
     return f"Etc/GMT{sign}{abs(hours)}"
+
+
+def describe_utc_offset(offset_minutes: int) -> str:
+    """
+    Human-readable "UTC+HH:MM" label for logging/reporting a fixed offset -
+    unlike offset_minutes_to_tz_str(), this accepts fractional-hour offsets
+    too (e.g. Local Mean Time). Display/report use only: never pass this
+    string to kerykeion as a tz_str.
+    """
+    sign = "+" if offset_minutes >= 0 else "-"
+    hours, minutes = divmod(abs(offset_minutes), 60)
+    return f"UTC{sign}{hours:02d}:{minutes:02d}"
 
 
 def resolve_fixed_offset_minutes(tz_str: Optional[str], tz_offset_minutes: Optional[int],
@@ -50,13 +68,42 @@ def build_subject(
     if tz_str is None and tz_offset_minutes is None:
         raise ValueError("Either tz_str or tz_offset_minutes must be provided")
 
+    # Fixed-offset path with a fractional-hour offset (e.g. Local Mean Time
+    # for a birthplace/event predating that location's adoption of standard
+    # time zones, such as pre-1883 US cities): no Etc/GMT name can express
+    # this, so instead of resolving a tz_str at all we compute the UTC instant
+    # ourselves (wall time minus the offset) and hand it to from_iso_utc_time.
+    # That method takes the chart-building instant directly as UTC, so it
+    # sidesteps the "must resolve to a real IANA zone" requirement entirely.
+    # tz_str="Etc/GMT" below only affects the subject's cosmetic local-time
+    # display fields, not the actual planetary/house computation (which
+    # depends only on the UTC instant and lat/lng) - resolved_tz/tz_source
+    # record the true offset for logging instead.
+    if tz_str is None and tz_offset_minutes % 60 != 0:
+        local_dt = datetime(year, month, day, hour, minute, second)
+        utc_dt = local_dt - timedelta(minutes=tz_offset_minutes)
+        iso_utc = utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        resolved_tz = f"FixedOffset{tz_offset_minutes:+d}min(LMT)"
+        tz_source = f"offset_override_fractional:{tz_offset_minutes}min"
+
+        subject = AstrologicalSubjectFactory.from_iso_utc_time(
+            name=name,
+            iso_utc_time=iso_utc,
+            lat=lat, lng=lng,
+            tz_str="Etc/GMT",
+            online=False,
+            houses_system_identifier=house_system,
+            zodiac_type=zodiac_type,
+        )
+        return subject, resolved_tz, tz_source
+
     resolved_tz = tz_str if tz_str else offset_minutes_to_tz_str(tz_offset_minutes)
     tz_source = f"explicit:{tz_str}" if tz_str else f"offset_override:{tz_offset_minutes}min"
 
     subject = AstrologicalSubjectFactory.from_birth_data(
         name=name,
         year=year, month=month, day=day,
-        hour=hour, minute=minute,
+        hour=hour, minute=minute, seconds=second,
         lat=lat, lng=lng,
         tz_str=resolved_tz,
         houses_system_identifier=house_system,

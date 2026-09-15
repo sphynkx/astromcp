@@ -10,8 +10,14 @@ scan defaults, etc.) see config.py.
 """
 
 DEFAULT_POINTS = [
+    # kerykeion 6.x field names - v5 used "mean_node"/"true_node" for what
+    # v6 splits into separate north/south fields; this project only ever
+    # wanted the (conventionally primary) North Node, so mean_node ->
+    # mean_north_lunar_node and true_node -> true_north_lunar_node is a
+    # rename, not a scope change (the South Node remains implicit, exactly
+    # 180 degrees opposite, as before - no separate field is needed for it).
     "sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn",
-    "uranus", "neptune", "pluto", "mean_node", "true_node", "chiron",
+    "uranus", "neptune", "pluto", "mean_north_lunar_node", "true_north_lunar_node", "chiron",
     "mean_lilith",
 ]
 
