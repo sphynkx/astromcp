@@ -42,6 +42,7 @@ def run_three_movements_scan(
     scan_end_hour: int, scan_end_minute: int,
     step_minutes: int,
     target_year: int, target_month: int, target_day: int,
+    target_hour: int = 12, target_minute: int = 0, target_second: int = 0,
     target_houses: Optional[List[int]] = None,
     target_points: Optional[List[str]] = None,
     direction_orb_deg: float = 1.0,
@@ -68,6 +69,22 @@ def run_three_movements_scan(
     own >=2-of-3 threshold, listed in chronological order (not by any
     score). house_system should be Koch ("K") to match the source's own
     stated requirement for this technique.
+
+    target_hour/target_minute/target_second (default 12:00:00, matching
+    this function's own prior hardcoded behavior - a change here changes
+    results, so the default is chosen to not silently alter existing
+    callers) are used ONLY for the transit movement - transiting
+    positions and the transiting-moment's own angles are genuinely
+    time-of-day sensitive (confirmed directly: passing the event's real
+    clock time instead of a default noon changed which candidates
+    qualified). The secondary-progression and "perfection" movements are
+    NOT given an hour - both operate on elapsed time at the scale of
+    years (a day-for-a-year, and 30 deg/year respectively), so a same-day
+    difference in the target event's clock time has no meaningful effect
+    on either and is intentionally not threaded through to them. When the
+    event's own clock time is known, always pass it here explicitly
+    rather than leaving the noon default - see help_texts/rectification.md
+    "Always pass known event times...".
     """
     fixed_offset = resolve_fixed_offset_minutes(
         natal_tz_str, natal_tz_offset_minutes,
@@ -116,7 +133,8 @@ def run_three_movements_scan(
         perfection_hit = _has_hit(perf_computed, perf_natal, targets, direction_orb_deg)
 
         transit_computed, transit_natal, _ = technique_transit(
-            n_raw, n_points, target_year, target_month, target_day, 12, 0, 0,
+            n_raw, n_points, target_year, target_month, target_day,
+            target_hour, target_minute, target_second,
             natal_lat, natal_lng, None, 0, house_system, zodiac_type,
         )
         transit_hit = _has_hit(transit_computed, transit_natal, targets, transit_orb_deg)

@@ -646,6 +646,7 @@ def rectif_movements_scan(
     scan_end_hour: int = 23, scan_end_minute: int = 59,
     step_minutes: int = 2,
     target_year: int = 2000, target_month: int = 1, target_day: int = 1,
+    target_hour: int = 12, target_minute: int = 0, target_second: int = 0,
     target_houses: Optional[List[int]] = None,
     target_points: Optional[List[str]] = None,
     direction_orb_deg: float = 1.0,
@@ -657,12 +658,19 @@ def rectif_movements_scan(
     zodiac_type = zodiac_type or config.DEFAULT_ZODIAC_TYPE
     try:
         result = run_three_movements_scan(
-            natal_year, natal_month, natal_day, natal_lat, natal_lng,
-            natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
-            scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
-            step_minutes, target_year, target_month, target_day,
-            target_houses, target_points, direction_orb_deg, transit_orb_deg,
-            scan_start_second, scan_end_second, step_seconds,
+            natal_year=natal_year, natal_month=natal_month, natal_day=natal_day,
+            natal_lat=natal_lat, natal_lng=natal_lng,
+            natal_tz_str=natal_tz_str, natal_tz_offset_minutes=natal_tz_offset_minutes,
+            house_system=house_system, zodiac_type=zodiac_type,
+            scan_start_hour=scan_start_hour, scan_start_minute=scan_start_minute,
+            scan_end_hour=scan_end_hour, scan_end_minute=scan_end_minute,
+            step_minutes=step_minutes,
+            target_year=target_year, target_month=target_month, target_day=target_day,
+            target_hour=target_hour, target_minute=target_minute, target_second=target_second,
+            target_houses=target_houses, target_points=target_points,
+            direction_orb_deg=direction_orb_deg, transit_orb_deg=transit_orb_deg,
+            scan_start_second=scan_start_second, scan_end_second=scan_end_second,
+            step_seconds=step_seconds,
         )
         if config.CONSOLE_RESULT_PREVIEW:
             logger.info(

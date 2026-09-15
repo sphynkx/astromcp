@@ -388,6 +388,7 @@ def rectif_movements_scan(
     scan_end_hour: int = 23, scan_end_minute: int = 59,
     step_minutes: int = 2,
     target_year: int = 2000, target_month: int = 1, target_day: int = 1,
+    target_hour: int = 12, target_minute: int = 0, target_second: int = 0,
     target_houses: Optional[List[int]] = None,
     target_points: Optional[List[str]] = None,
     direction_orb_deg: float = 1.0,
@@ -410,6 +411,15 @@ def rectif_movements_scan(
     that candidate time; 2-of-3 means ~66%. Below that, the source does
     not consider the time confirmed at all.
 
+    target_hour/target_minute/target_second (default 12:00:00) give the
+    event's own clock time and are used ONLY for the transit movement -
+    the secondary-progression and "perfection" movements operate on
+    elapsed years, not clock time, so a same-day hour difference doesn't
+    meaningfully affect them. When the event's own clock time is known,
+    always pass it here explicitly rather than leaving the noon default -
+    confirmed directly that this changes which candidates qualify (see
+    help_texts/rectification.md "Always pass known event times...").
+
     Returns qualifying_windows: contiguous [start, end] time ranges meeting
     the >=2-of-3 threshold, each labeled with which movements hit and the
     source's own stated concordance level (3-of-3 or 2-of-3) - grouped
@@ -431,12 +441,19 @@ def rectif_movements_scan(
     technique is tied to Koch houses specifically.
     """
     return tools.rectif_movements_scan(
-        natal_year, natal_month, natal_day, natal_lat, natal_lng,
-        natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
-        scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
-        step_minutes, target_year, target_month, target_day,
-        target_houses, target_points, direction_orb_deg, transit_orb_deg,
-        scan_start_second, scan_end_second, step_seconds,
+        natal_year=natal_year, natal_month=natal_month, natal_day=natal_day,
+        natal_lat=natal_lat, natal_lng=natal_lng,
+        natal_tz_str=natal_tz_str, natal_tz_offset_minutes=natal_tz_offset_minutes,
+        house_system=house_system, zodiac_type=zodiac_type,
+        scan_start_hour=scan_start_hour, scan_start_minute=scan_start_minute,
+        scan_end_hour=scan_end_hour, scan_end_minute=scan_end_minute,
+        step_minutes=step_minutes,
+        target_year=target_year, target_month=target_month, target_day=target_day,
+        target_hour=target_hour, target_minute=target_minute, target_second=target_second,
+        target_houses=target_houses, target_points=target_points,
+        direction_orb_deg=direction_orb_deg, transit_orb_deg=transit_orb_deg,
+        scan_start_second=scan_start_second, scan_end_second=scan_end_second,
+        step_seconds=step_seconds,
     )
 
 

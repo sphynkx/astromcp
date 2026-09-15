@@ -486,12 +486,6 @@ protocol's session/SSE handshake):
   year-length constant or time-of-day handling. Not yet root-caused.
 - Intermediate progressed/directed house cusps (2,3,5,6,8,9,11,12) are
   not currently computed - only the four angles (ASC/MC/DSC/IC).
-- `rectif_movements_scan` (and the other criteria.py-based scans) do not
-  currently accept an explicit target event time
-  (`target_hour`/`target_minute`/`target_second`) the way `rectif_technique`
-  does - confirmed by testing, not assumed. For an event with a known
-  clock time, use `rectif_technique` directly (which does support it) to
-  scan candidates at that exact time instead.
 - Historical timezone data relies on IANA tzdata via Python's `zoneinfo`,
   which is well-maintained but may not capture every obscure historical
   administrative change. Use `tz_offset_minutes` to override when you've
