@@ -458,9 +458,20 @@ def run_rectification_pipeline(
     # -----------------------------------------------------------------------
     # Step 11: Direct verification of candidate times via solar_arc
     # -----------------------------------------------------------------------
-    # Build candidate list from: explicitly provided, intersection peaks, scan midpoint
-    cands = _build_candidate_list(candidate_times, intersection, scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute)
-    logger.info("pipeline: verifying %d candidate times against all events...", len(cands))
+    # Build candidate list from: explicitly provided, intersection peaks,
+    # most-corroborated-individual-events, scan midpoint (last resort) -
+    # see _build_candidate_list's own tiering and _most_corroborated_
+    # candidates' docstring for why the midpoint is no longer the first
+    # fallback once the intersections are empty.
+    cands, candidate_fallback_tier = _build_candidate_list(
+        candidate_times, intersection, movements_results, step_minutes * 60,
+        scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
+    )
+    result["candidate_selection_tier"] = candidate_fallback_tier
+    logger.info(
+        "pipeline: verifying %d candidate times against all events (selection tier: %s)...",
+        len(cands), candidate_fallback_tier,
+    )
 
     verification = {}
     for cand in cands:
@@ -479,6 +490,7 @@ def run_rectification_pipeline(
         logger.info("  verified candidate %s against %d events", cand_label, len(events))
 
     result["candidate_verification"] = verification
+
 
     # -----------------------------------------------------------------------
     # Summary / completeness
@@ -606,14 +618,69 @@ def _compute_intersection(movements_results, step_seconds):
 # Candidate list builder
 # ---------------------------------------------------------------------------
 
-def _build_candidate_list(explicit_candidates, intersection, start_h, start_m, end_h, end_m):
+def _most_corroborated_candidates(movements_results, step_seconds, top_n=10):
+    """
+    Fallback used when NEITHER the strict (all-events, 3-of-3) nor the
+    relaxed (all-events, >=2-of-3) intersection has any surviving
+    candidate at all - which happens whenever even one event's
+    qualifying windows fail to overlap with the rest (a real, common
+    outcome with a large, heterogeneous event list, not a bug).
+
+    Finds the time(s) corroborated by the largest NUMBER of separate
+    events' own 3-of-3 windows. This is not an invented score: it is a
+    direct tally of how many independent applications of the same
+    documented method (Grishchenyuk's own 3-of-3 threshold, applied once
+    per event) agree on a given candidate - the same kind of counting
+    the strict/relaxed intersection above already does, just relaxed
+    from "agreement across ALL events" to "agreement across the most
+    events available" when unanimous agreement doesn't exist. Ties are
+    all returned, sorted chronologically, capped at top_n.
+
+    This is a STARTING POINT for step 11's direct verification, not a
+    result on its own - replaces the previous fallback (the bare scan-
+    range midpoint), which carried no evidential weight at all.
+    """
+    from collections import defaultdict
+    counts: Dict[int, int] = defaultdict(int)
+    for name, r in movements_results.items():
+        if "error" in r:
+            continue
+        seen_for_this_event = set()
+        for w in r.get("qualifying_windows", []):
+            if w.get("movements_hit", 0) < 3:
+                continue
+            start, end = _time_to_seconds(w["start"]), _time_to_seconds(w["end"])
+            for s in range(start, end + 1, max(step_seconds, 1)):
+                seen_for_this_event.add(s)
+        for s in seen_for_this_event:
+            counts[s] += 1
+    if not counts:
+        return []
+    max_count = max(counts.values())
+    top_seconds = sorted(s for s, c in counts.items() if c == max_count)
+    return [
+        {
+            "hour": s // 3600, "minute": (s % 3600) // 60, "second": s % 60,
+            "corroborating_events": max_count,
+        }
+        for s in top_seconds[:top_n]
+    ]
+
+
+def _build_candidate_list(
+    explicit_candidates, intersection, movements_results, step_seconds,
+    start_h, start_m, end_h, end_m,
+):
     """Build the list of candidate times to verify."""
     cands = []
+    fallback_tier = None
 
     # 1. Explicitly provided candidates
     if explicit_candidates:
         for c in explicit_candidates:
             cands.append({"hour": c["hour"], "minute": c["minute"], "second": c.get("second", 0)})
+        if cands:
+            fallback_tier = "explicit_candidates"
 
     # 2. From intersection results — pick representative times
     for time_str in intersection.get("strict_3of3_intersection", [])[:10]:
@@ -621,6 +688,7 @@ def _build_candidate_list(explicit_candidates, intersection, start_h, start_m, e
         c = {"hour": int(parts[0]), "minute": int(parts[1]), "second": int(parts[2]) if len(parts) > 2 else 0}
         if not _cand_in_list(c, cands):
             cands.append(c)
+            fallback_tier = fallback_tier or "strict_3of3_intersection"
 
     # 3. From relaxed intersection (if strict is empty)
     if not intersection.get("strict_3of3_intersection"):
@@ -629,14 +697,27 @@ def _build_candidate_list(explicit_candidates, intersection, start_h, start_m, e
             c = {"hour": int(parts[0]), "minute": int(parts[1]), "second": int(parts[2]) if len(parts) > 2 else 0}
             if not _cand_in_list(c, cands):
                 cands.append(c)
+                fallback_tier = fallback_tier or "relaxed_2of3_intersection"
 
-    # 4. Scan range midpoint if nothing else
+    # 4. Most-corroborated-by-individual-events fallback, when BOTH
+    #    intersections above are empty - see _most_corroborated_candidates'
+    #    own docstring for why this is not invented scoring. Far more
+    #    informative than falling straight to the scan-range midpoint.
+    if not cands:
+        for c in _most_corroborated_candidates(movements_results, step_seconds):
+            if not _cand_in_list(c, cands):
+                cands.append(c)
+                fallback_tier = fallback_tier or "most_corroborated_individual_events"
+
+    # 5. Scan range midpoint - absolute last resort, only when there is
+    #    truly no signal anywhere (e.g. every single event errored out).
     if not cands:
         mid_h = (start_h + end_h) // 2
         mid_m = (start_m + end_m) // 2
         cands.append({"hour": mid_h, "minute": mid_m, "second": 0})
+        fallback_tier = "scan_range_midpoint_no_signal"
 
-    return cands
+    return cands, fallback_tier
 
 
 def _cand_in_list(c, cands):
@@ -644,6 +725,7 @@ def _cand_in_list(c, cands):
         if existing["hour"] == c["hour"] and existing["minute"] == c["minute"] and existing.get("second", 0) == c.get("second", 0):
             return True
     return False
+
 
 
 # ---------------------------------------------------------------------------
