@@ -99,6 +99,42 @@ Concretely:
   threshold. Reproducing a named author's rule and reporting exactly
   what they say to report is the opposite of inventing one.
 
+## Absolute rule: never shorten, skip, or summarize the process
+
+**This is as categorical as the no-scoring rule above, and was violated
+repeatedly in real sessions before being written down here - stated in
+the strongest terms because of that, not hypothetically.** Every step in
+"Full mandatory sequence" below, and every technique in the inventory
+above that applies to a given event, gets actually run and actually
+reported - every time, for every person, regardless of how many
+rectifications have already been done in this project, how obvious the
+answer seems partway through, or how long the response is getting.
+"This case looks clear already" or "the response is getting long" are
+never valid reasons to stop early - completeness is not best-effort, it
+is the deliverable.
+
+A real, documented failure: sessions drifted toward running Trutina plus
+a handful of `rectif_movements_scan` calls on 3-5 personal events, then
+presenting a short, confident-sounding verdict - while
+`secondary_progression`/`profection`/`lunar_return` for events without a
+known time, `rectif_timoshenko_scan`, `rectif_bonatti_scan`,
+`rectif_herich_scan`, `rectif_degree_clustering`, the entire public/
+career event block, and the final individual re-verification pass were
+quietly never run at all. Nothing in that output said any of this was
+skipped - the response just got shorter and more confident-looking over
+successive sessions, which is a worse failure than an honestly
+incomplete one, because it reads as *more* thorough rather than less.
+
+**Never abbreviate the reasoning or the workflow narration either.**
+Show every technique actually invoked, every result actually obtained,
+and the actual reasoning connecting them - in full, not summarized down
+to "checked several events, they converged on X." A person reading the
+response must be able to verify every step happened, not take on faith
+that it did. The mandatory table below (see "Mandatory final report
+format") exists specifically so completeness can be checked by counting,
+not by trusting the prose - but the table is a supplement to full
+in-line workflow narration, not a replacement for it.
+
 ## Complete inventory of implemented techniques - read this before choosing which to run
 
 Every technique below is real, callable, and expected to be used where
@@ -294,31 +330,83 @@ person (see "How to use this document" above).
 ## Mandatory final report format
 
 The person must always be able to see the full process, not just a
-final number - report format is not optional cosmetic detail.
-
-Present, in this order:
+final number - report format is not optional cosmetic detail, and this
+section is not a style suggestion. It is required, in full, for every
+rectification, with no shortened version for "simple" cases. Present, in
+this order:
 
 1. **Source assessment** - what was stated, how strong the source is,
    and any alternative times under consideration.
-2. **Technique-by-technique results table**: for every technique
-   actually run (per the inventory above), list which one, which
-   event(s) it was run against, and its real result (qualifying
-   window(s), or the specific aspect/orb found by direct verification) -
-   not a score. Group by event if that reads more clearly for a
-   particular case (a list of events, each with its result under every
-   method applied to it) - either grouping is fine as long as every
-   technique's actual application and actual output is visible, not
-   summarized away.
-3. **Intersection/narrowing steps** - how the surviving candidate set
-   was reached from the individual results above, stated explicitly
-   enough that the narrowing itself could be checked by someone else.
-4. **Final verdict** - the resulting time range, and the single most
+
+2. **Step checklist** - the 12 steps of "Full mandatory sequence" above,
+   listed with a done/not-done mark for each, in a fixed table so the
+   count is always checkable at a glance:
+
+   | # | Step | Done? |
+   |---|---|---|
+   | 1 | Source assessment | |
+   | 2 | rectif_trutina | |
+   | 3 | Gather personal events | |
+   | 4 | Known-time personal events: transit sweep + secondary_progression | |
+   | 5 | Unknown-time personal events: solar_arc + secondary_progression + profection + lunar_return | |
+   | 6 | rectif_movements_scan (+ timoshenko where relevant) per event | |
+   | 7 | Public/career/minor events: full stack, not skipped | |
+   | 8 | Intersection (not summing) | |
+   | 9 | rectif_bonatti_scan + rectif_herich_scan + rectif_degree_clustering | |
+   | 10 | step_seconds narrowing | |
+   | 11 | Final individual re-verification of survivors | |
+   | 12 | This report | |
+
+   **12 rows, always** - if a row is marked "not done", say why in one
+   line next to it (e.g. "no known clock time for any event, so N/A" is
+   a legitimate reason; "ran out of turn length" is not - continue in a
+   follow-up message instead of marking it done or quietly dropping it).
+
+3. **Per-event technique matrix** - one row per event gathered (personal
+   events first, then public/career/minor ones - ALL of them, not a
+   subset), one column per technique that applies to that event's own
+   precision (known-time events: transit, secondary_progression,
+   movements_scan, timoshenko_scan where run; date-only events: solar_arc,
+   secondary_progression, profection, lunar_return, movements_scan,
+   timoshenko_scan where run). Every cell holds either a real result
+   (qualifying window, or the specific aspect/orb from direct
+   verification - never a score), or an explicit reason it doesn't apply
+   ("N/A - no clock time" for a transit-sweep cell on a date-only event),
+   or, if a check was genuinely not yet run, the word "PENDING" - never a
+   blank cell and never a cell silently omitted from the table.
+
+   At the bottom of this table, state the arithmetic explicitly:
+   `<N events> x <M applicable techniques per event, stated> = <Z expected
+   cells>; <W cells actually filled>`. W must equal Z. If it doesn't,
+   that is the completeness check catching a real gap - go back and fill
+   it before presenting a verdict, don't note the discrepancy and move on.
+
+4. **Global/auxiliary checks table** (not per-event) - `rectif_trutina`,
+   `rectif_bonatti_scan`, `rectif_herich_scan`, `rectif_degree_clustering`:
+   4 rows, always, each with its real result or an explicit reason it
+   doesn't apply (e.g. degree_clustering needs enough angular events -
+   state the count against Israitel's/Brady's own stated minimums from
+   the inventory above, don't just skip it silently if the count is
+   thin).
+
+5. **Intersection/narrowing steps** - how the surviving candidate set was
+   reached from the tables above, stated explicitly enough that the
+   narrowing itself could be checked by someone else.
+
+6. **Final verdict** - the resulting time range, and the single most
    probable time within it if one is warranted (see "Attempt
-   second-level precision" and "Realistic expectations" below for when
-   a single point isn't warranted and a range should be reported
-   instead). State the location the time is given in (see "Timezones"
-   below - always true LMT with the location named, never an internal
+   second-level precision" and "Realistic expectations" below for when a
+   single point isn't warranted and a range should be reported instead).
+   State the location the time is given in (see "Timezones" below -
+   always true LMT with the location named, never an internal
    working-zone shift left unconverted).
+
+If the full sequence genuinely cannot fit in one response (a real,
+common situation for a person with dozens of events), say so explicitly
+and continue in a follow-up message with the same full rigor - present a
+clearly-labeled PARTIAL version of tables 2-4 for what's been covered so
+far, with the rest marked PENDING, rather than presenting a complete-
+looking report that quietly stops early.
 
 ## Assess source quality before starting, and re-verify it as carefully as any winning candidate
 
