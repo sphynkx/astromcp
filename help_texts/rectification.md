@@ -869,38 +869,13 @@ rectif_pipeline_result(job_id="abc123", section="candidate_verification")
 rectif_pipeline_result(job_id="abc123", section="summary")
 ```
 
-### REST endpoints for manual access
-
-Results are also available via REST — useful for manual inspection,
-debugging, or piping into jq/scripts:
-
-```bash
-# List all jobs
-curl http://localhost:8765/astro/jobs
-
-# Check job status (lightweight)
-curl http://localhost:8765/astro/jobs/abc123/status
-
-# Fetch one section
-curl http://localhost:8765/astro/jobs/abc123/trutina
-curl http://localhost:8765/astro/jobs/abc123/movements_scan
-curl http://localhost:8765/astro/jobs/abc123/candidate_verification
-curl http://localhost:8765/astro/jobs/abc123/auxiliary
-curl http://localhost:8765/astro/jobs/abc123/movements_intersection
-
-# Full result (WARNING: can be tens of MB)
-curl http://localhost:8765/astro/jobs/abc123 > full_result.json
-
-# Pretty-print a section with jq
-curl -s http://localhost:8765/astro/jobs/abc123/summary | jq .
-```
+Results are also accessible via REST — see README.md for curl examples.
 
 ### Job persistence (Redis)
 
-By default, jobs are stored in memory and lost on service restart. Set
-`ASTROMCP_REDIS_URL=redis://localhost:6379/0` in .env to persist jobs in
-Redis — results survive restarts and are kept for 3 days. **Strongly
-recommended for production use with pipeline runs.**
+When `ASTROMCP_REDIS_URL` is set, jobs are stored in Redis and survive
+service restarts (kept for 3 days). Without Redis, jobs are in-memory
+only and lost on restart.
 
 ## Sources surveyed
 
