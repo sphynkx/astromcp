@@ -279,6 +279,26 @@ Apply this to every rectification, start to finish. Steps are ordered;
 do not reorder or skip without explicit prior discussion with the
 person (see "How to use this document" above).
 
+**When using `rectif_pipeline` (the recommended approach - see the
+dedicated section below), steps 2-11 are executed server-side in one
+call. The Claude side's responsibility reduces to: step 1 (source
+assessment), preparing the COMPLETE event list with annotations, and
+step 12 (report). But the report must still cover ALL steps, using the
+data the pipeline returns — nothing is shortened just because the
+server did the computation.**
+
+**Absolute rule: send EVERY event from the biography to the pipeline.**
+If the person's data lists 71 events, the pipeline receives 71 events.
+If it lists 15, it receives 15. No "selecting key events", no "the
+rest are minor so I'll skip them", no shortening for token savings.
+Every event gets annotated with `target_houses` (reasoned), `precision`,
+and `category`, and sent. The pipeline's whole purpose is handling large
+event lists efficiently — using it with a manually-reduced subset defeats
+that purpose and was a documented failure in a real test session (30 of
+71 events sent, 41 dropped silently). For events where only the year is
+known, use a mid-year placeholder (month=6, day=15) and set
+precision="year".
+
 1. **Assess the source(s) for the stated birth time** (see "Assess
    source quality" below) before running anything else - this shapes
    how much weight a documented-but-unconfirmed time deserves relative
@@ -332,8 +352,21 @@ person (see "How to use this document" above).
 The person must always be able to see the full process, not just a
 final number - report format is not optional cosmetic detail, and this
 section is not a style suggestion. It is required, in full, for every
-rectification, with no shortened version for "simple" cases. Present, in
-this order:
+rectification, with no shortened version for "simple" cases.
+
+**Absolute rule: never shorten, summarize, or "make concise" the output
+report.** Every event processed must appear in the tables. Every
+technique result must be shown with its real value (window, aspect, orb).
+The report must be long enough that a person reading it can verify every
+single step happened and see every single result. "The response is
+getting long" is never a reason to truncate — continue in follow-up
+messages if needed. A real, documented failure: a pipeline processing 30
+events returned all data, but the report compressed it into a short
+narrative with a few highlight numbers, making it impossible to verify
+which events were checked by which techniques and what the actual results
+were. That is the opposite of what this format requires.
+
+Present, in this order:
 
 1. **Source assessment** - what was stated, how strong the source is,
    and any alternative times under consideration.
@@ -672,16 +705,88 @@ in a single call:
      lunar_return where applicable) verification for each candidate time
      against every event
 
-The Claude side's job is:
-  - Assess source quality (step 1) — this is interpretive, not computable
-  - Prepare the annotated event list: for each event, specify `name`,
-    `year/month/day`, `precision` ("datetime"|"date"|"month"|"year"),
-    `target_houses` (reasoned per-event via house-derivation logic),
-    `category` ("personal"|"career"|"minor"), and `hour/minute/second`
-    when known
+### Absolute rule: send ALL events, not a subset
+
+**Every single event from the person's biography must be included in the
+events list sent to the pipeline — no cherry-picking, no "selecting key
+events", no shortening the list for convenience or token savings.** This
+is as categorical as the no-scoring and no-skipping rules above. A real,
+documented failure: a test run sent 30 events out of 71 available,
+producing a plausible-looking result — but the missing 41 events included
+career milestones, awards, and dates that could have shifted the
+intersection or revealed a different pattern entirely. The whole point of
+the pipeline is that the server handles the computational load of
+processing ALL events — exploiting that is not optional, it is the
+reason the pipeline exists.
+
+Concretely: if the person's biography lists 71 events, the events list
+sent to `rectif_pipeline` must contain 71 entries. If 5 of those have
+only a year known (precision="year"), they still go in — with an
+appropriate placeholder date (e.g. month=6, day=15) and their precision
+field set to "year" so the server knows to treat them with lower
+confidence. If an event's house assignment is genuinely unclear, include
+it with your best-effort house reasoning and note the uncertainty in the
+name field — never drop it silently.
+
+### The Claude side's job
+
+  - **Assess source quality** (step 1) — this is interpretive, not
+    computable by the server
+  - **Prepare the COMPLETE annotated event list**: for EVERY event in the
+    biography, specify `name`, `year/month/day`, `precision`
+    ("datetime"|"date"|"month"|"year"), `target_houses` (reasoned
+    per-event via house-derivation logic), `category`
+    ("personal"|"career"|"minor"), and `hour/minute/second` when known
   - Optionally provide `candidate_times` — specific birth times to verify
     (e.g. from documented sources: birth certificate, family testimony)
-  - Receive the full result matrix and produce the verdict + report
+  - **Receive the full result matrix and produce the COMPLETE mandatory
+    report** — see "Mandatory output format" below
+
+### Mandatory output format when using the pipeline
+
+**The report produced from the pipeline's return data must be FULLY
+EXPANDED — never shortened, summarized, or made "concise".** Every event,
+every technique, every result must be visible. The person must be able to
+verify the entire process by reading the report, not by trusting that
+something was checked. Specifically:
+
+1. **Source assessment** — as before.
+
+2. **12-step checklist** — as defined in "Mandatory final report format"
+   above, all 12 rows.
+
+3. **Trutina Hermetis** — all four branches with their times, convergence
+   status, and which branch (if any) falls near the candidate range.
+
+4. **Movements scan selectivity table** — one row per event, sorted by
+   selectivity (ratio of qualifying/tested), showing:
+   qualifying_count / tested_count, ratio, qualifying windows (all of
+   them, not just the first), and the event's category. ALL events, not
+   a subset. This table makes it immediately visible which events are
+   discriminating and which are non-informative.
+
+5. **Intersection analysis** — which time ranges survive when
+   intersecting the most selective events. Show the arithmetic:
+   "Event A window [X-Y] ∩ Event B window [X-Y] = [X-Y]" for the
+   key selective events, stated explicitly enough to be checked.
+
+6. **Auxiliary checks** — Bonatti, Herich, degree_clustering: their
+   qualifying windows or results, one row each.
+
+7. **Candidate verification matrix** — one row per candidate time, with
+   columns for each PERSONAL event showing the best angular aspect and
+   its orb. If there are too many candidates to show all, show at least
+   the explicitly-provided candidate_times and the top intersection
+   survivors. For each candidate, state the count of sub-0.1° and sub-0.5°
+   angular aspects on personal events specifically (personal events take
+   priority — see the rule above).
+
+8. **Conflict analysis** — if different methods or event categories
+   point to different time ranges, state this explicitly: what points
+   where, and why one is preferred over another.
+
+9. **Final verdict** — the resulting time range and the single most
+   probable time, with the location and timezone named.
 
 **Event precision governs technique selection server-side:**
   - `"datetime"` (date + clock time known): transit, solar_arc,
