@@ -93,8 +93,7 @@ Two interfaces share this one process and port:
         │                       # dignity, reception, void-of-course Moon, translation/
         │                       # collection of light, prohibition/frustration/
         │                       # refranation, verdict - see help_texts/horary.md
-        ├── jobs.py             # async job registry (Redis or in-memory) with
-        │                       # sectioned retrieval for large pipeline results
+        ├── jobs.py             # in-memory async job registry for long scans
         ├── help.py             # reads help_texts/*.md on demand
         ├── tools.py            # MCP tool implementations (no MCP dependency itself)
         ├── display.py          # human-readable console summaries
@@ -127,7 +126,6 @@ modified, or reused independently.
 | `rectif_bonatti_scan` | Bonatti's method, reproduced literally - a weak auxiliary check per the source's own framing, not a primary technique |
 | `rectif_herich_scan` | Herich's number (Paul von Gerich) - a weak auxiliary check, the source's own author acknowledges up to 8deg uncertainty |
 | `rectif_degree_clustering` | Brady's graphic/Israitel's condensation method - histograms transiting-degree hits across many events, converts top peaks to candidate times |
-| `rectif_pipeline` / `rectif_pipeline_start` + `rectif_pipeline_result` | **Full rectification pipeline** - runs Trutina + movements_scan for every event + intersection + auxiliary checks + direct candidate verification, all server-side in one call. `rectif_pipeline_result` supports sectioned retrieval (`section=` parameter) to stay under MCP's 1 MB limit |
 | `horary_chart` | Builds and judges a horary chart (a question asked at a specific moment/place) - radicality, significators, dignity, reception, void-of-course Moon, translation/collection of light, prohibition/frustration/refranation, Yes/No verdict. See `help("horary")` |
 | `help` | Reads a methodology/usage guide from `help_texts/*.md` - see below |
 | `ping` | Connectivity test |
@@ -462,80 +460,58 @@ set the variable to `false` to disable it.
 ## Pipeline jobs — running and retrieving rectification results
 
 The rectification pipeline (`rectif_pipeline_start`) processes dozens of
-life events against dozens of candidate birth times. A full run (e.g. 71
-events × 91 candidates) takes **~30 minutes** and produces a result that
-can be **tens of megabytes** — too large for MCP's 1 MB tool-result limit
-to return in one piece, and too expensive to repeat if the service
-restarts.
+life events against dozens of candidate birth times. A full run (71
+events × 91 candidates) takes ~5-30 minutes and produces a result that
+can be tens of megabytes.
 
 ### Job storage (Redis recommended)
 
-Set `ASTROMCP_REDIS_URL=redis://localhost:6379/0` in `.env` to store jobs
-in Redis. Results survive service restarts and are kept for 3 days.
-Without Redis, jobs live in memory only — a restart loses everything.
-
-    # Install Redis if needed
-    dnf install redis        # Fedora
-    systemctl enable --now redis
-
-    # Add to .env
     echo 'ASTROMCP_REDIS_URL=redis://localhost:6379/0' >> .env
 
-### REST endpoints for manual job access
+Results are kept for 3 days. Without Redis, jobs live in memory only.
 
-Jobs are accessible via plain HTTP, independently of MCP. All examples
-assume the service runs on `localhost:8765` (the default port).
+### REST endpoints
 
 **List all jobs:**
 
-    curl http://localhost:8765/astro/jobs
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs
 
-**Check job status** (lightweight, no result payload):
+**Job status** (lightweight, no payload):
 
-    curl http://localhost:8765/astro/jobs/<job_id>/status
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/status
 
-Example response:
+**Full result** (can be 10-50 MB):
 
-    {
-      "status": "done",
-      "elapsed_seconds": 1842.3,
-      "available_sections": ["trutina", "movements_scan", "movements_intersection",
-                             "auxiliary", "candidate_verification", "summary", ...],
-      "events_count": 71,
-      "summary": {"events_processed": 71, "candidates_verified": 8, ...}
-    }
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id> > result.json
 
-**Fetch one section** (each fits comfortably in memory and in MCP):
+**One section:**
 
-    curl http://localhost:8765/astro/jobs/<job_id>/trutina
-    curl http://localhost:8765/astro/jobs/<job_id>/movements_scan
-    curl http://localhost:8765/astro/jobs/<job_id>/candidate_verification
-    curl http://localhost:8765/astro/jobs/<job_id>/auxiliary
-    curl http://localhost:8765/astro/jobs/<job_id>/movements_intersection
-    curl http://localhost:8765/astro/jobs/<job_id>/summary
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/trutina
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/movements_scan
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/candidate_verification
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/auxiliary
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/movements_intersection
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/summary
 
-**Pretty-print with jq:**
+**NDJSON streaming** (one JSON line per section — universal, no size limit):
 
-    curl -s http://localhost:8765/astro/jobs/<job_id>/summary | jq .
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/stream
 
-**Save full result to file** (WARNING: can be 10-50 MB):
+Each line is a self-contained JSON object `{"section": "...", "data": ...}`.
+Filter with grep + jq:
 
-    curl http://localhost:8765/astro/jobs/<job_id> > result.json
+    curl -s .../astro/jobs/<id>/stream | grep '"section":"trutina"' | jq .data
 
-**Pipe a section into a file for offline analysis:**
+**Pretty-print any section with jq:**
 
-    curl -s http://localhost:8765/astro/jobs/<job_id>/candidate_verification > candidates.json
-    cat candidates.json | python3 -m json.tool | less
+    curl -s .../astro/jobs/<id>/summary | jq .
 
 ### How the LLM retrieves results
 
-The MCP tool `rectif_pipeline_result(job_id, section=...)` uses the same
-sectioned retrieval:
-
-    rectif_pipeline_result(job_id)                              → status + available_sections
-    rectif_pipeline_result(job_id, section="trutina")           → Trutina data
-    rectif_pipeline_result(job_id, section="movements_scan")    → per-event windows
-    rectif_pipeline_result(job_id, section="candidate_verification") → technique matrix
+The MCP tool `rectif_pipeline_result(job_id, section=...)` fetches
+sections one at a time. For sections that exceed MCP's 1 MB limit
+(typically `candidate_verification`), the LLM uses `bash_tool` + `curl`
+to the REST endpoints above.
 
 ## Testing
 

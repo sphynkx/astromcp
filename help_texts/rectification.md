@@ -836,46 +836,44 @@ JSON body.
 
 ## Performance / async / retrieving large results
 
-`rectif_scan` is synchronous and fine for a few hundred candidates times a
-handful of transit/progression/solar_arc/profection events. For anything
-bigger - wide time ranges, many events, or ANY use of
-`technique="solar_return"` (its iterative per-candidate search is several
-times more expensive than the other techniques and can push a full-day
-scan well past MCP/proxy timeouts even though the server keeps working) -
-use `rectif_scan_start` + poll `rectif_scan_result` instead of blocking on
-`rectif_scan`. The same applies to `rectif_timoshenko_scan`/
-`rectif_bonatti_scan`/`rectif_herich_scan` over wide ranges.
+**Always use `rectif_pipeline_start` + `rectif_pipeline_result`** for
+pipeline runs — a 71-event run takes ~5-30 minutes.
 
-For the full rectification pipeline specifically, **always use
-`rectif_pipeline_start` + `rectif_pipeline_result`** (never the
-synchronous `rectif_pipeline`) — a real 71-event run takes ~30 minutes.
+### Sectioned retrieval via MCP
 
-### Retrieving pipeline results in sections
+`rectif_pipeline_result` supports a `section=` parameter:
 
-A 70+ event pipeline produces results that exceed MCP's 1 MB tool-result
-limit. **`rectif_pipeline_result` supports sectioned retrieval:**
+    rectif_pipeline_result(job_id)                              → status + available_sections
+    rectif_pipeline_result(job_id, section="trutina")           → Trutina
+    rectif_pipeline_result(job_id, section="movements_scan")    → per-event windows
+    rectif_pipeline_result(job_id, section="auxiliary")          → Bonatti/Herich/clustering
+    rectif_pipeline_result(job_id, section="movements_intersection") → intersection
+    rectif_pipeline_result(job_id, section="candidate_verification") → technique matrix
 
-```
-# Step 1: check status (lightweight, no payload)
-rectif_pipeline_result(job_id="abc123")
-→ {status: "done", available_sections: [...], summary: {...}}
+If a section exceeds MCP's 1 MB limit (candidate_verification with 70+
+events typically does), fetch via REST instead — see below.
 
-# Step 2: fetch sections one by one
-rectif_pipeline_result(job_id="abc123", section="trutina")
-rectif_pipeline_result(job_id="abc123", section="movements_scan")
-rectif_pipeline_result(job_id="abc123", section="movements_intersection")
-rectif_pipeline_result(job_id="abc123", section="auxiliary")
-rectif_pipeline_result(job_id="abc123", section="candidate_verification")
-rectif_pipeline_result(job_id="abc123", section="summary")
-```
+### REST retrieval (for sections that exceed MCP limits)
 
-Results are also accessible via REST — see README.md for curl examples.
+The service exposes REST endpoints alongside MCP. Use bash_tool + curl
+to fetch large results directly:
 
-### Job persistence (Redis)
+    # Full result as one JSON file:
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id> > result.json
 
-When `ASTROMCP_REDIS_URL` is set, jobs are stored in Redis and survive
-service restarts (kept for 3 days). Without Redis, jobs are in-memory
-only and lost on restart.
+    # NDJSON streaming — one line per section:
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/stream > result.ndjson
+
+    # One section:
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/candidate_verification > cv.json
+
+Then parse the downloaded file locally with python3 via bash_tool.
+
+### Job persistence
+
+Set `ASTROMCP_REDIS_URL=redis://localhost:6379/0` in .env to persist
+jobs in Redis (3-day TTL, survives restarts). Without Redis, jobs are
+in-memory only.
 
 ## Sources surveyed
 

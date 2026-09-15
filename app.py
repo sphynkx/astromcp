@@ -19,7 +19,7 @@ warnings.filterwarnings("ignore", message=".*Field 'lifespan' has an incomplete 
 
 from mcp.server.fastmcp import FastMCP
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from engine import config
 from engine import tools
@@ -28,7 +28,8 @@ from engine import svg_chart
 from engine import photo_fetch
 from engine.geocode import GeocodeError
 from engine.pipeline import run_rectification_pipeline
-from engine.jobs import submit_job, get_job, get_job_section, get_job_status, list_jobs
+from engine.jobs import (submit_job, get_job, get_job_status, get_job_section,
+                         iter_job_sections, list_jobs)
 
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL, logging.INFO))
 logger = logging.getLogger("astromcp")
@@ -1103,94 +1104,98 @@ def rectif_pipeline_result(job_id: str, section: Optional[str] = None) -> Dict[s
     Retrieve a rectif_pipeline_start job's result.
 
     Without `section`: returns lightweight status + summary (never the
-    full payload — that would exceed MCP's 1 MB limit for large jobs).
+    full payload — that exceeds MCP's 1 MB limit for large jobs).
 
-    With `section`: returns one top-level slice of the result. Call with
-    no section first to see `available_sections`, then fetch each one.
+    With `section`: returns one top-level slice of the result.
 
-    Valid section names (after job completes):
+    Valid section names (when job is done):
       trutina, movements_scan, movements_intersection, auxiliary,
       candidate_verification, summary, elapsed_seconds, natal,
       scan_range, events_count, fixed_offset_minutes
 
     Typical workflow:
-      1. rectif_pipeline_result(job_id)          → status + available_sections
-      2. rectif_pipeline_result(job_id, "trutina")           → Trutina data
-      3. rectif_pipeline_result(job_id, "movements_scan")    → all events' windows
-      4. rectif_pipeline_result(job_id, "candidate_verification") → matrix
-      5. rectif_pipeline_result(job_id, "auxiliary")          → Bonatti/Herich/clustering
-      6. rectif_pipeline_result(job_id, "movements_intersection") → intersection
+      1. rectif_pipeline_result(job_id)                    → status + sections list
+      2. rectif_pipeline_result(job_id, "trutina")         → Trutina data
+      3. rectif_pipeline_result(job_id, "movements_scan")  → per-event windows
+      4. rectif_pipeline_result(job_id, "auxiliary")        → Bonatti/Herich/clustering
+      ...etc.
+
+    If a section is too large even alone (>1 MB, e.g. candidate_verification
+    with 70+ events), fetch it via REST streaming instead:
+      curl https://HOST/astro/jobs/<id>/stream > result.ndjson
+    or fetch the full result as one file:
+      curl https://HOST/astro/jobs/<id> > result.json
     """
     if section:
         return get_job_section(job_id, section)
     return get_job_status(job_id)
 
 
-# --- REST endpoints for job management ---
+# --- REST endpoints for jobs ---
 
 @mcp.custom_route("/astro/jobs", methods=["GET"])
 async def astro_jobs_list(request: Request) -> JSONResponse:
-    """
-    GET /astro/jobs — list all known jobs with status (no payloads).
-
-    Example:
-      curl http://localhost:8765/astro/jobs
-    """
+    """GET /astro/jobs — list all jobs."""
     return JSONResponse(list_jobs())
 
 
 @mcp.custom_route("/astro/jobs/{job_id}", methods=["GET"])
 async def astro_jobs_get(request: Request) -> JSONResponse:
-    """
-    GET /astro/jobs/<job_id> — full result (WARNING: can be tens of MB).
-
-    Example:
-      curl http://localhost:8765/astro/jobs/b4be79e9be13 > result.json
-    """
-    job_id = request.path_params["job_id"]
-    return JSONResponse(get_job(job_id))
+    """GET /astro/jobs/<id> — full result (WARNING: can be tens of MB)."""
+    return JSONResponse(get_job(request.path_params["job_id"]))
 
 
 @mcp.custom_route("/astro/jobs/{job_id}/status", methods=["GET"])
 async def astro_jobs_status(request: Request) -> JSONResponse:
-    """
-    GET /astro/jobs/<job_id>/status — lightweight status check.
+    """GET /astro/jobs/<id>/status — lightweight status, no payload."""
+    return JSONResponse(get_job_status(request.path_params["job_id"]))
 
-    Example:
-      curl http://localhost:8765/astro/jobs/b4be79e9be13/status
+
+@mcp.custom_route("/astro/jobs/{job_id}/stream", methods=["GET"])
+async def astro_jobs_stream(request: Request) -> StreamingResponse:
     """
+    GET /astro/jobs/<id>/stream — NDJSON streaming.
+
+    Returns the result as newline-delimited JSON: one line per section.
+    Each line is a self-contained JSON object:
+      {"section": "<name>", "data": <value>}
+
+    This avoids the need to load the entire multi-MB result into memory
+    at once on the client side. Works with curl, can be piped to jq:
+
+      curl https://HOST/astro/jobs/<id>/stream
+      curl -s https://HOST/astro/jobs/<id>/stream | grep '"section":"trutina"' | jq .
+    """
+    import json as _json
     job_id = request.path_params["job_id"]
-    return JSONResponse(get_job_status(job_id))
+
+    async def _generate():
+        for section_name, section_data in iter_job_sections(job_id):
+            line = _json.dumps(
+                {"section": section_name, "data": section_data},
+                ensure_ascii=False, default=str,
+            )
+            yield line + "\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="application/x-ndjson",
+        headers={"X-Job-Id": job_id},
+    )
 
 
 @mcp.custom_route("/astro/jobs/{job_id}/{section}", methods=["GET"])
 async def astro_jobs_section(request: Request) -> JSONResponse:
-    """
-    GET /astro/jobs/<job_id>/<section> — one section of the result.
-
-    Example:
-      curl http://localhost:8765/astro/jobs/b4be79e9be13/trutina
-      curl http://localhost:8765/astro/jobs/b4be79e9be13/movements_scan
-      curl http://localhost:8765/astro/jobs/b4be79e9be13/candidate_verification
-      curl http://localhost:8765/astro/jobs/b4be79e9be13/auxiliary
-      curl http://localhost:8765/astro/jobs/b4be79e9be13/movements_intersection
-      curl http://localhost:8765/astro/jobs/b4be79e9be13/summary
-    """
-    job_id = request.path_params["job_id"]
-    section = request.path_params["section"]
-    return JSONResponse(get_job_section(job_id, section))
+    """GET /astro/jobs/<id>/<section> — one section of the result."""
+    return JSONResponse(get_job_section(
+        request.path_params["job_id"],
+        request.path_params["section"],
+    ))
 
 
 @mcp.custom_route("/astro/rectify", methods=["POST"])
 async def astro_rectify(request: Request) -> JSONResponse:
-    """
-    REST endpoint for the rectification pipeline. Accepts the same JSON
-    body as the rectif_pipeline MCP tool. Returns the full pipeline result.
-
-    POST /astro/rectify
-    Content-Type: application/json
-    Body: same schema as rectif_pipeline parameters
-    """
+    """POST /astro/rectify — synchronous pipeline (same body as MCP tool)."""
     try:
         body = await request.json()
         result = run_rectification_pipeline(**body)
