@@ -1,15 +1,12 @@
 # astromcp
 
 MCP (Model Context Protocol) server exposing precise astrological chart
-calculations (natal charts, transits, secondary progressions, solar arc
-directions, and full birth-time rectification scans) for use as tools by an
-LLM assistant. Built on kerykeion (https://github.com/g-battaglia/kerykeion),
-which wraps the Swiss Ephemeris for astronomical accuracy.
-
-Originally built to support natal chart rectification work (determining an
-unknown/uncertain birth time by matching astrological techniques against a
-list of known life events), but the tools are general-purpose and usable
-for any natal/transit/progression/direction calculation.
+calculations - natal charts, transits, secondary progressions, solar arc
+directions, solar/lunar returns, profections, primary directions,
+relocated transits, and a suite of documented birth-time rectification
+methods - for use as tools by an LLM assistant. Built on kerykeion
+(https://github.com/g-battaglia/kerykeion), which wraps the Swiss
+Ephemeris for astronomical accuracy.
 
 ## Why this exists
 
@@ -26,23 +23,26 @@ to a Swiss Ephemeris calculation, not to the model's training data.
                                                   --> app.py (tool registration)
                                                       --> engine/ (all logic)
 
-The service exposes tools, not a REST API - it must be added to Claude as
-an MCP connector (streamable-http transport), not fetched as a plain URL.
+Two interfaces share this one process and port:
 
-Separately, `/astro` and `/astro/chart.svg` (the same `app.py`, same
-port) are also reachable as a plain REST endpoint for the MediaWiki
-integration (see below) - via a **second, independent** nginx proxy
-block, this one on the wiki's own server, forwarding `/astro` on the
-wiki's own domain straight to this backend. Two different reverse
-proxies, two different domains, same backend port - don't confuse the
-nginx config for astromcp's own public MCP domain (above) with the
-wiki-side proxy block documented in the MediaWiki section below.
+- **MCP tools** (streamable-http transport) - added to Claude as a
+  connector, not fetched as a plain URL.
+- **`GET /astro` and `GET /astro/chart.svg`** - plain REST endpoints,
+  registered via `@mcp.custom_route` in `app.py`, for non-MCP callers
+  such as MediaWiki (see "REST endpoint" and "Integration with
+  MediaWiki" below). Reachable through a **second, independent** nginx
+  proxy block - typically on a different domain (e.g. a wiki's own
+  server), forwarding straight to this same backend port. Don't confuse
+  that wiki-side proxy block with the one documented under "Hosting"
+  below, which is for this project's own MCP domain.
 
 ## Project structure
 
     astromcp/
     ├── app.py                  # MCP entry point: tool registration only
     ├── README.md
+    ├── BIBLIOGRAPHY.md          # full source list backing help_texts/ and TECHNIQUE_STATUS.md
+    ├── TECHNIQUE_STATUS.md      # per-technique implementation status
     ├── help_texts/             # LLM-facing methodology guides, read via the help() tool
     │   ├── overview.md
     │   ├── rectification.md
@@ -64,11 +64,20 @@ wiki-side proxy block documented in the MediaWiki section below.
         ├── constants.py        # structural constants + traditional sign rulerships
         ├── chart.py            # subject construction, serialization, tz helpers
         ├── aspects.py          # aspect geometry, applying/separating/exact
-        ├── techniques.py       # transit / progression / solar arc / solar return / profection
+        ├── techniques.py       # transit / secondary progression / solar arc /
+        │                       # solar return / lunar return / profection /
+        │                       # primary direction (zodiacal) / relocated transit
         ├── trutina.py          # Trutine of Hermes (classical rectification, no events needed)
         ├── scan.py             # rectif_scan: sweeps candidate birth times
-        ├── criteria.py         # Grishchenyuk / Timoshenko / Bonatti / Herich criterion tests
+        ├── criteria.py         # scan wrappers for the criterion-based methods:
+        │                       # Grishchenyuk (three movements) / Timoshenko /
+        │                       # Bonatti / Herich - imports bonatti.py/herich.py
+        │                       # for the latter two's actual check logic
+        ├── bonatti.py          # Bonatti's method - check logic used by criteria.py
+        ├── herich.py           # Herich's number - check logic used by criteria.py
         ├── clustering.py       # Israitel/Brady degree-clustering rectification
+        ├── jones_patterns.py   # Jones planetary-pattern classification (bundle/
+        │                       # bowl/bucket/locomotive/splash/splay/seesaw/mixed)
         ├── arabic_parts.py     # Lot FORMULAS: Part of Fortune + Kutalev's general
         │                       # Lot formula - see lots.py for the generic engine
         │                       # that turns a formula into a full point
@@ -93,10 +102,8 @@ wiki-side proxy block documented in the MediaWiki section below.
         ├── fixed_stars.py      # fixed-star positions via pyswisseph, used only by
         │                       # public_api.py - not used by any rectification tool
         ├── public_api.py       # builds the flat JSON for the /astro REST endpoint
-        ├── svg_chart.py        # builds the SVG for /astro/chart.svg - see that
-        │                        # endpoint's README section for design notes
-        └── photo_fetch.py      # fetches+inlines the optional chart-header photo as
-                                 # a data: URI - see the README's "Photo embedding" note
+        ├── svg_chart.py        # builds the SVG for /astro/chart.svg
+        └── photo_fetch.py      # fetches+inlines the optional chart-header photo as a data: URI
 
 `app.py` deliberately contains no astrological logic - it only registers
 MCP tools and delegates to `engine/tools.py`. This keeps the transport layer
@@ -109,13 +116,13 @@ modified, or reused independently.
 |---|---|
 | `rectif_chart` | Full chart (planets, houses, angles) for one date/time/place |
 | `rectif_chart_batch` | Batch version of the above |
-| `rectif_technique` | One technique - transit / secondary progression / solar arc direction / solar return / profection - with aspects to the natal chart |
+| `rectif_technique` | One technique - transit / secondary progression / solar arc direction / solar return / lunar return / profection / primary direction (zodiacal) / relocated transit - with aspects to the natal chart |
 | `rectif_technique_batch` | Batch version of the above |
-| `rectif_scan` | EXPLORATORY ONLY (see help_texts/rectification.md "No invented scoring") - sums an arbitrary hit-count into a ranking not documented by any surveyed source; useful for a rough sense of where to look, not for conclusions |
+| `rectif_scan` | Sweeps candidate birth times against a list of events. Its score/ranking fields are not a valid rectification result on their own - see `help_texts/rectification.md`'s "Absolute rule: never invent a scoring or weighting scheme" before using this tool's output for anything beyond a convenience sweep mechanism |
 | `rectif_scan_start` / `rectif_scan_result` | Async version of rectif_scan (submit + poll) - use for large scans or `technique="solar_return"`, which can otherwise exceed MCP/proxy timeouts |
 | `rectif_trutina` | Trutine of Hermes: fast, direct classical rectification via the conception (epoch) chart - needs no life events at all |
-| `rectif_movements_scan` | Grishchenyuk's literal "3 movements" criterion (>=2 of 3 concordant) - returns qualifying times, not scores |
-| `rectif_timoshenko_scan` | Timoshenko's 4-condition bidirectional aspect test (ruler+cusp each send AND receive) - returns qualifying times |
+| `rectif_movements_scan` | Grishchenyuk's literal "3 movements" criterion (>=2 of 3 concordant) - returns qualifying time windows, not a ranking |
+| `rectif_timoshenko_scan` | Timoshenko's 4-condition bidirectional aspect test (ruler+cusp each send AND receive) - returns qualifying time windows |
 | `rectif_bonatti_scan` | Bonatti's method, reproduced literally - a weak auxiliary check per the source's own framing, not a primary technique |
 | `rectif_herich_scan` | Herich's number (Paul von Gerich) - a weak auxiliary check, the source's own author acknowledges up to 8deg uncertainty |
 | `rectif_degree_clustering` | Brady's graphic/Israitel's condensation method - histograms transiting-degree hits across many events, converts top peaks to candidate times |
@@ -168,9 +175,7 @@ way a planet does), and a NUMERIC speed estimate (the same formula
 evaluated against the chart recomputed 10 minutes later, one shared
 extra ephemeris call per request regardless of how many Lots are
 requested) - so aspects.compute_aspects() can tell applying from
-separating for it same as any planet. That numeric-rather-than-analytic
-speed is deliberate: it works identically for any formula added to the
-registry later, with no per-formula derivative to hand-derive.
+separating for it same as any planet.
 
 Only `part_of_fortune` is registered today. Request others via
 `&lots=name1,name2` (default is just `part_of_fortune` if omitted); an
@@ -192,149 +197,64 @@ with different `house_system` values if a page genuinely needs both.
 
 **Discovering the parameters**: `GET /astro` with no query string at all
 returns the parameter reference (`ASTROMCP_HELP_DOC` in `app.py`) as JSON
-instead of an error - useful for a quick `curl` sanity check. Any request
-that has params but is invalid or incomplete (missing `date`, unparsable
-`time`, unknown city, ...) returns `{"error": ..., "help": {...}}` with
-that same reference attached, so the parameter list is always one field
-away rather than only living in this README - readable directly in a
-terminal (`curl ... | jq`) and just as easy for a MediaWiki-side script to
-parse and surface to an editor who fat-fingered a query.
+instead of an error. Any request that has params but is invalid or
+incomplete (missing `date`, unparsable `time`, unknown city, ...) returns
+`{"error": ..., "help": {...}}` with that same reference attached.
 
 City-name lookup (`&city=...`) and timezone auto-resolution (when neither
 `&tz=` nor `&tz_offset=` is given) are both **offline** - `geonamescache`
 for the former, `timezonefinder` for the latter - no live external
-geocoding call happens. `&city=` accepts English or Russian input: a
-curated exonym table (`RU_CITY_EXONYMS` in `engine/geocode.py`) covers
-cases like Москва/Moscow where the Russian name is a genuinely different
-word, geonamescache's own bundled alternate-name data covers a fair
-number of Cyrillic spellings for free, and a transliteration fallback
-catches the rest where transliterating happens to land close to a known
-spelling. `&country_code=` (used to disambiguate a common city name)
-likewise accepts ISO2, or a country name in English or Russian, resolved
-via Babel's CLDR data - no hand-maintained table needed for countries,
-unlike cities. Both come with real caveats spelled out in
-`engine/geocode.py`'s docstring: city-name matching is a population-based
-heuristic that can pick the wrong same-named town, the Russian-language
-support hasn't been independently verified against the live dataset (test
-it against your running server and grow `RU_CITY_EXONYMS` from what
-actually fails), and the auto-resolved timezone is the *modern* zone
-boundary only - **not safe for historical dates** without independently
-verifying the actual historical offset (see the Soviet decree-time
-example already documented in `help_texts/rectification.md`). For
-anything precise, pass `lat`/`lon` and `tz`/`tz_offset` explicitly.
-
-Fixed-star positions (`engine/fixed_stars.py`) are a new capability added
-for this endpoint - no rectification tool in this project used them
-before. First-pass implementation, not independently verified against a
-running install in the session that wrote it; sanity-check a few star
-positions against a known reference (e.g. Astrodienst) after deploying.
+geocoding call happens. `&city=` accepts English or Russian input via a
+curated exonym table (`RU_CITY_EXONYMS` in `engine/geocode.py`),
+geonamescache's own bundled alternate names, and a transliteration
+fallback. `&country_code=` likewise accepts ISO2, or a country name in
+English or Russian (resolved via Babel's CLDR data, plus a curated
+`RU_COUNTRY_EXONYMS` table for common Russian abbreviations CLDR doesn't
+carry, like США/РФ). Real caveats, spelled out in full in
+`engine/geocode.py`'s own docstring: city-name matching is a
+population-based heuristic that can pick the wrong same-named town, and
+the auto-resolved timezone is the *modern* zone boundary only - **not
+safe for historical dates** (see `help_texts/rectification.md`'s
+timezone section). For anything precise, pass `lat`/`lon` and
+`tz`/`tz_offset` explicitly.
 
 ### SVG chart wheel: `GET /astro/chart.svg`
 
 Same date/time/location/timezone/house_system parameters as `/astro`
-above, rendered as a standalone SVG natal chart wheel instead of JSON -
-see `engine/svg_chart.py` for the drawing code and the design notes in
-its module docstring (rotation convention, why the sign-wedge colors are
-a computed hue-stepped palette rather than hand-picked hex values, aspect
-line color/style rules, what "exact" means for the bold highlighting).
+above, rendered as a standalone SVG natal chart wheel instead of JSON.
 
     GET /astro/chart.svg?date=23.11.1993&time=14:30&city=Kyiv
       &name=Displayed+person+name
       &place=Displayed+place+name
       &filename=Some_name.svg
 
-`name`/`place` are free-text header labels (the JSON report's `meta` has
-no "person's name" field, since a date/time/place alone doesn't carry
-one). `filename` only sets the `Content-Disposition` header so a
-browser's "save as" proposes that name - it does not change the response
-body, and nothing is written to disk on the server.
+`name`/`place` are free-text header labels. `filename` only sets the
+`Content-Disposition` header so a browser's "save as" proposes that name
+- it does not change the response body, and nothing is written to disk
+on the server.
 
-Colors and layout were built from a ZET9 screenshot the project owner
-supplied as a loose visual reference, **not** a pixel-exact
-reproduction (their own framing of the brief) - sign-wedge hues (an
-exact hand-picked hex table, `SIGN_COLORS` in `engine/svg_chart.py`, kept
-separate from the drawing code specifically so it's easy to retune), a
-thin house ring (matching the sign ring's own width, rather than
-reaching toward center - planets sit right at its inner edge) with
-planets placed inside it, Ascendant/MC markers, the hard/soft aspect
-color split on the wheel's own aspect chords, essential-dignity letters
-next to each planet in the side list (`PLANET_DIGNITY` - a popular modern
-convention that also assigns dignities to Uranus/Neptune/Pluto, not the
-strict 7-planet classical system, exactly as specified), and the general
-header/wheel/list/table layout follow that reference; exact ZET9 pixel
-colors (beyond the explicitly-specified sign hexes), per-planet
-aspect-count balance bars, and ZET9's own (much larger) fixed-star
-catalog were deliberately not chased.
+Layout and colors follow the style and spirit of ZET9 (not a pixel-exact
+reproduction): a sign-wedge color wheel, a house ring with planets placed
+inside it, Ascendant/MC markers, a hard/soft aspect color split on the
+wheel's chords, essential-dignity letters next to each planet, and an
+aspect table colored by applying/separating. Every planet, cusp, and
+aspect chord carries a native SVG `<title>` for hover tooltips. Visual
+parameters (`SIGN_COLORS`, `HOUSE_COLORS`, and related tables in
+`engine/svg_chart.py`) are plain Python dicts, edited directly in that
+file; house system, orb tables, and other behavioral defaults are tuned
+via `.env` (see `install/.env.example`) without touching code.
 
-Every planet, house cusp/angle, and aspect chord carries a native SVG
-`<title>` element (position/house, and any aspects to that point,
-including the applying/separating mark), so hovering it in a browser
-shows a tooltip - modeled on a ZET9 screenshot of exactly this hover
-behavior. The aspect TABLE (as opposed to the wheel's own chords) colors
-each aspect by applying vs. separating ("сходящиеся"/"расходящиеся" -
-pink vs. light blue) rather than hard/soft, since the harmonious/tense
-split is already visible in the glyph itself; it's laid out as a
-shrinking staircase (row *i* has *i* cells, column headers along the
-bottom) rather than a half-empty square, which needs one fewer row/
-column of header space. Chords are drawn for planet-planet aspects and
-for planet-to-**angle** aspects (Asc/MC/Dsc/IC); aspects to the other 8
-house cusps aren't drawn as chords (that would clutter the wheel fast)
-but do show up in that cusp's own tooltip. House sectors are colored
-per `HOUSE_COLORS` in `engine/svg_chart.py` - a table like `SIGN_COLORS`,
-currently all 12 entries the same flat hex, kept separate from the
-drawing code specifically so a future cardinal/succedent/cadent scheme
-is a table edit, not a code change.
-
-**Photo embedding is more involved than it looks**, because of a real
-browser restriction worth understanding before debugging it further: an
-SVG loaded as the source of an HTML `<img>` (exactly how the Lua module
-embeds this chart) runs in a restricted context that is **not allowed to
-load its own external resources** - so a plain `<image href="https://
-external-host/photo.jpg">` inside the SVG silently never loads, even
-though navigating to the same SVG URL directly in a browser tab loads it
-fine (this is exactly the "opens in a new tab but not from inside the
-picture" symptom). There's no fix on the SVG-authoring side for this -
-it's deliberate. The fix is `engine/photo_fetch.py`: the server fetches
-the photo itself and inlines it as a `data:` URI (not an external
-resource, so the restriction doesn't apply) before the SVG is ever sent
-to the browser. This is why `/astro/chart.svg`'s `photo_url` param now
-only accepts URLs matching `ASTROMCP_PHOTO_ALLOWED_PREFIXES` (empty by
-default - fails closed) - a publicly reachable endpoint that fetches any
-URL a caller hands it is a textbook SSRF surface, so set this to your own
-wiki's file-serving host before photos will render (see `.env.example`).
-
-On the MediaWiki side, `resolveFileUrl` (in the Lua module) tries three
-things in order: (1) `computeHashedFileUrl` - computes the direct file
-path from MediaWiki's own default hashed-upload-directory scheme
-(`mw.hash.hashValue('md5', filename)`, first/first-two hex chars as the
-subdirectory) - deterministic, no live-wiki dependency, and confirmed
-against a real working URL by the project owner (`md5sum` in a shell
-matched the actual path); (2) the Scribunto File object's direct URL
-(`title.file:getUrl()`/`canonicalUrl`, wrapped in `pcall` since the exact
-method available varies by Scribunto version); (3) the `Special:FilePath`
-redirect. `WIKI_UPLOAD_PATH` (top of the module) holds the upload
-directory name - `/images_sociowiki` for sociowiki.sphynkx.org.ua,
-adjust if you copy this module to a wiki with a different
-`$wgUploadPath`. Whichever of the three resolves is still only the
-*source* URL handed to `photo_url` - it still goes through the
-server-side fetch-and-inline step above, computing the "real" direct path
-doesn't bypass that requirement (see the note above on why).
-
-Untested against a real browser/MediaWiki render in the session that
-wrote it (no network access to rasterize locally, and no live wiki to
-confirm the exact Scribunto File-object method names or the photo fetch
-against) - the SVG was checked for structural validity (finite
-coordinates within the canvas, correct arc sweep directions including
-the now-variable-width house sectors, compiles/runs without exceptions
-against synthetic data shaped like a real `/astro` response) but not
-eyeballed rendered - render one real chart after deploying and compare
-against expectations before relying on it.
-expectations before relying on it.
+Embedding a photo (`&photo_url=...`) requires the image to be fetched and
+inlined server-side as a `data:` URI (`engine/photo_fetch.py`) rather than
+referenced by its original URL - an SVG loaded as an HTML `<img>` source
+cannot load its own external resources, a real browser restriction, not
+a bug in this service. When integrating with MediaWiki specifically, see
+`install/Mediawiki/README.md` for how the Lua module resolves an
+uploaded file's fetchable URL before passing it here.
 
 Errors return a small SVG containing the error text (with the correct
-HTTP status code) rather than JSON - an `<img>`/external-image consumer
-like MediaWiki has nowhere to display JSON error text, so a visibly
-broken image with a readable message beats a broken image with none.
+HTTP status code) rather than JSON, since an `<img>`/external-image
+consumer has nowhere to display JSON error text.
 
 ## Integration with MediaWiki
 
@@ -354,13 +274,10 @@ Two mechanisms work together:
    before any tool is called. It's kept short: essentially "call `help()`
    before doing rectification work."
 2. **`help_texts/*.md`**, read on demand via the `help` tool. This is
-   where the actual accumulated methodology lives - technique priority
-   order, the rule against inventing subjective event-significance
-   weights, timezone/coordinate handling advice, and so on. Add a new
-   topic by adding a new `help_texts/<topic>.md` file; `help()` with no
-   arguments (or an unrecognized topic) lists whatever topics currently
-   exist, so nothing needs to be hardcoded elsewhere when a topic is
-   added.
+   where the actual accumulated methodology lives. Add a new topic by
+   adding a new `help_texts/<topic>.md` file; `help()` with no arguments
+   (or an unrecognized topic) lists whatever topics currently exist, so
+   nothing needs to be hardcoded elsewhere when a topic is added.
 
 This exists so that methodology learned the hard way in one chat session
 isn't lost when the service is used from a different chat or account -
@@ -369,41 +286,27 @@ relying on them being re-explained every time.
 
 ### Key design choices
 
-- **No geocoding.** The service never looks up place names - you always
-  pass explicit `lat`/`lng` as decimal degrees. This avoids the "small
-  village not in the database" problem entirely; get coordinates from
-  Wikipedia/Wikidata (property P625) or any gazetteer, and pass them
-  directly.
+- **No geocoding for MCP rectification tools.** You always pass explicit
+  `lat`/`lng` as decimal degrees. This avoids the "small village not in
+  the database" problem entirely; get coordinates from Wikipedia/Wikidata
+  (property P625) or any gazetteer, and pass them directly. (The `/astro`
+  REST endpoint separately offers optional offline `&city=` lookup - see
+  above - for callers like MediaWiki that need it; the MCP rectification
+  tools themselves don't use it.)
 - **Timezones: `tz_str` (IANA name) or explicit `tz_offset_minutes`.**
   IANA names correctly auto-resolve DST for modern dates. For historical
-  dates where the modern IANA zone boundary/rule doesn't apply (e.g.
-  Soviet-era administrative timezone changes), pass `tz_offset_minutes`
-  explicitly to override.
+  dates where the modern IANA zone boundary/rule doesn't apply, pass
+  `tz_offset_minutes` explicitly to override.
 - **For ambiguous/nonexistent local times** (the hour that's skipped in a
   spring-forward, or repeated in a fall-back), kerykeion raises an error
   rather than silently guessing. The reliable workaround is to compute the
-  UTC time yourself and pass it with `tz_offset_minutes=0` - this
-  sidesteps local-time DST resolution entirely.
+  UTC time yourself and pass it with `tz_offset_minutes=0`.
 - **Orbs are technique-aware.** Transits default to wide classical orbs;
   progressions/directions default to tight ~1° orbs, since for directions
-  1° of arc ≈ 1 year of life, so a wide orb there directly becomes years
-  of dating error. All defaults are tunable via `.env` - see
-  `.env.example`.
+  1° of arc ≈ 1 year of life. All defaults are tunable via `.env`.
 - **`rectif_scan` builds the natal chart once per candidate**, not once
   per event, so cost scales as `candidates × events`, not `candidates ×
-  events × (natal + technique)`. A 2-hour range at 1-minute resolution
-  with 20 events is on the order of 2,400 chart builds - typically tens
-  of seconds, well within the timeout configured in the reverse proxy.
-
-## Wikidata death-monitoring module: `install/Mediawiki/Deathmon.lua`
-
-Moved to
-[`install/Mediawiki/README.md`](install/Mediawiki/README.md#deathmon-wikidata-death-date-p570-monitoring)
-along with the rest of the MediaWiki-side documentation - covers both
-Lua functions, the required `LocalSettings.php` source, why category
-membership doesn't just update on its own (MediaWiki's job-queue/parser-
-cache mechanics), the bot-password + cron setup that works around that,
-and the full five-bug debugging history.
+  events × (natal + technique)`.
 
 ## Horary astrology: `horary_chart`
 
@@ -414,7 +317,7 @@ different discipline from natal work, with its own significator/
 dignity/aspect rules. See `help_texts/horary.md` for the full
 methodology (adapted from a synthesis of Masenkov's textbook, Frawley's
 precise prohibition/frustration/refranation definitions, and Lavoie's
-position on judging non-radical charts - see BIBLIOGRAPHY.md) and
+position on judging non-radical charts - see `BIBLIOGRAPHY.md`) and
 `TECHNIQUE_STATUS.md` for exactly what's implemented.
 
 The tool computes everything deterministically - radicality, both
@@ -443,11 +346,9 @@ independent of `ASTROMCP_HOUSE_SYSTEM`, which is tuned for
 rectification - since Placidus (not Koch) is horary's own conventional
 default; Regiomontanus (`"R"`) is the classical Lilly-era alternative.
 
-Part of Fortune and the Cross of Fate (`Asc + Mars - Saturn` - a second
-horary-specific point alongside Part of Fortune, see
-`horar_wri_gl01.txt`) are computed via the existing Lots framework
-(`engine/lots.py`) rather than new machinery - horary just registers a
-second formula there.
+Part of Fortune and the Cross of Fate (`Asc + Mars - Saturn`, a second
+horary-specific point) are computed via the existing Lots framework
+(`engine/lots.py`) rather than new machinery.
 
 ## Requirements
 
@@ -585,11 +486,16 @@ protocol's session/SSE handshake):
   year-length constant or time-of-day handling. Not yet root-caused.
 - Intermediate progressed/directed house cusps (2,3,5,6,8,9,11,12) are
   not currently computed - only the four angles (ASC/MC/DSC/IC).
+- `rectif_movements_scan` (and the other criteria.py-based scans) do not
+  currently accept an explicit target event time
+  (`target_hour`/`target_minute`/`target_second`) the way `rectif_technique`
+  does - confirmed by testing, not assumed. For an event with a known
+  clock time, use `rectif_technique` directly (which does support it) to
+  scan candidates at that exact time instead.
 - Historical timezone data relies on IANA tzdata via Python's `zoneinfo`,
   which is well-maintained but may not capture every obscure historical
-  administrative change (e.g. small USSR settlements reassigned between
-  time zones). Use `tz_offset_minutes` to override when you've verified
-  the correct historical offset independently.
+  administrative change. Use `tz_offset_minutes` to override when you've
+  verified the correct historical offset independently.
 - `rectif_scan` cost scales linearly with `candidates × events`; very
   wide ranges at fine step sizes with many events can take minutes -
   tune `proxy_read_timeout` accordingly, or narrow the range first with
@@ -599,7 +505,3 @@ protocol's session/SSE handshake):
 - No authentication on the MCP endpoint. Fine for a single-user personal
   tool behind a non-guessable subdomain; add an allowlist/secret header
   if this becomes a concern.
-
-## License
-
-Personal project. No license specified.
