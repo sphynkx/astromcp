@@ -1,72 +1,206 @@
 """
-Simple in-memory async job registry for long-running rectif_scan calls.
+Async job registry for long-running pipeline / scan calls.
 
-MCP tool calls are subject to timeouts (client-side and reverse-proxy), and
-a full-day scan across many events - especially with technique="solar_return",
-whose search is iterative and several times more expensive per event than a
-transit/progression/direction lookup - can comfortably exceed those timeouts
-even though the server itself keeps working and eventually finishes. Rather
-than trying to outrun the timeout, rectif_scan_start hands the work to a
-background thread and returns immediately with a job_id; rectif_scan_result
-polls for completion.
+Storage back-end:
+  - **Redis** (preferred) when ASTROMCP_REDIS_URL is set. Results survive
+    service restarts, and large payloads (tens of MB) are handled natively.
+  - **In-memory dict** (fallback) when Redis is unavailable or not
+    configured. Jobs are lost on restart.
 
-This is intentionally minimal: an in-process dict plus a thread pool. Jobs
-do not survive a service restart and there's no persistence - a deliberate
-simplicity trade-off for a single-operator tool, not a general job queue.
+The module auto-detects which back-end to use at import time and logs the
+choice.  All public functions work identically regardless of back-end.
+
+Sectioned retrieval
+-------------------
+Pipeline results for 70+ events can exceed MCP's 1 MB tool-result limit.
+``get_job_section(job_id, section)`` returns one top-level key of the
+result dict at a time — small enough for any transport.  Valid section
+names: trutina, movements_scan, movements_intersection, auxiliary,
+candidate_verification, summary, elapsed_seconds, natal, scan_range,
+events_count, fixed_offset_minutes.
+
+REST endpoints (registered by app.py):
+  GET  /astro/jobs                  — list all jobs
+  GET  /astro/jobs/<id>             — full result (large!)
+  GET  /astro/jobs/<id>/status      — lightweight status (no payload)
+  GET  /astro/jobs/<id>/<section>   — one section of the result
 """
 
-import uuid
+import json
+import logging
 import threading
 import time
-import logging
+import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Optional
+
+from . import config
 
 logger = logging.getLogger("astromcp")
 
-_executor = ThreadPoolExecutor(max_workers=4)
-_jobs: Dict[str, Dict[str, Any]] = {}
-_lock = threading.Lock()
+# ---------------------------------------------------------------------------
+# Back-end selection
+# ---------------------------------------------------------------------------
 
+_redis = None
+_memory_jobs: Dict[str, Dict[str, Any]] = {}
+_lock = threading.Lock()
+_executor = ThreadPoolExecutor(max_workers=4)
+
+_REDIS_KEY_PREFIX = "astromcp:job:"
+_REDIS_RESULT_TTL = 86400 * 3   # 3 days
+
+
+def _init_redis():
+    global _redis
+    url = config.REDIS_URL
+    if not url:
+        logger.info("jobs: ASTROMCP_REDIS_URL not set — using in-memory storage (jobs lost on restart)")
+        return
+    try:
+        import redis as _redis_lib
+        _redis = _redis_lib.Redis.from_url(url, decode_responses=False)
+        _redis.ping()
+        logger.info("jobs: connected to Redis at %s", url)
+    except Exception as e:
+        logger.warning("jobs: Redis unavailable (%s) — falling back to in-memory storage", e)
+        _redis = None
+
+_init_redis()
+
+
+# ---------------------------------------------------------------------------
+# Internal storage helpers
+# ---------------------------------------------------------------------------
+
+def _rkey(job_id: str) -> str:
+    return f"{_REDIS_KEY_PREFIX}{job_id}"
+
+def _store(job_id: str, data: dict):
+    if _redis is not None:
+        _redis.set(_rkey(job_id),
+                   json.dumps(data, ensure_ascii=False, default=str).encode("utf-8"),
+                   ex=_REDIS_RESULT_TTL)
+    else:
+        with _lock:
+            _memory_jobs[job_id] = data
+
+def _load(job_id: str) -> Optional[dict]:
+    if _redis is not None:
+        raw = _redis.get(_rkey(job_id))
+        if raw is None:
+            return None
+        return json.loads(raw)
+    else:
+        with _lock:
+            return _memory_jobs.get(job_id)
+
+def _list_ids() -> list:
+    if _redis is not None:
+        keys = _redis.keys(f"{_REDIS_KEY_PREFIX}*")
+        plen = len(_REDIS_KEY_PREFIX)
+        return [k.decode("utf-8")[plen:] if isinstance(k, bytes) else k[plen:] for k in keys]
+    else:
+        with _lock:
+            return list(_memory_jobs.keys())
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 def submit_job(func: Callable, *args, **kwargs) -> str:
+    """Submit a function for background execution; return a job_id."""
     job_id = uuid.uuid4().hex[:12]
-    with _lock:
-        _jobs[job_id] = {
-            "status": "running",
-            "result": None,
-            "error": None,
-            "started_at": time.time(),
-            "finished_at": None,
-        }
+    _store(job_id, {
+        "status": "running", "result": None, "error": None,
+        "started_at": time.time(), "finished_at": None,
+    })
 
     def _run():
         try:
             result = func(*args, **kwargs)
-            with _lock:
-                _jobs[job_id]["status"] = "done"
-                _jobs[job_id]["result"] = result
-                _jobs[job_id]["finished_at"] = time.time()
+            started = (_load(job_id) or {}).get("started_at", time.time())
+            _store(job_id, {
+                "status": "done", "result": result, "error": None,
+                "started_at": started, "finished_at": time.time(),
+            })
+            logger.info("job %s completed", job_id)
         except Exception as e:
-            logger.exception(f"async job {job_id} failed")
-            with _lock:
-                _jobs[job_id]["status"] = "error"
-                _jobs[job_id]["error"] = str(e)
-                _jobs[job_id]["finished_at"] = time.time()
+            logger.exception("job %s failed", job_id)
+            started = (_load(job_id) or {}).get("started_at", time.time())
+            _store(job_id, {
+                "status": "error", "result": None, "error": str(e),
+                "started_at": started, "finished_at": time.time(),
+            })
 
     _executor.submit(_run)
     return job_id
 
 
 def get_job(job_id: str) -> Dict[str, Any]:
-    with _lock:
-        job = _jobs.get(job_id)
-        if job is None:
-            return {"status": "not_found"}
-        elapsed = (job.get("finished_at") or time.time()) - job["started_at"]
-        out = {"status": job["status"], "elapsed_seconds": round(elapsed, 1)}
-        if job["status"] == "done":
-            out["result"] = job["result"]
-        elif job["status"] == "error":
-            out["error"] = job["error"]
+    """Return full job state including result (may be very large)."""
+    data = _load(job_id)
+    if data is None:
+        return {"status": "not_found"}
+    elapsed = (data.get("finished_at") or time.time()) - data.get("started_at", time.time())
+    out: Dict[str, Any] = {"status": data["status"], "elapsed_seconds": round(elapsed, 1)}
+    if data["status"] == "done":
+        out["result"] = data["result"]
+    elif data["status"] == "error":
+        out["error"] = data["error"]
+    return out
+
+
+def get_job_section(job_id: str, section: str) -> Dict[str, Any]:
+    """
+    Return one top-level section of a completed job's result.
+    Keeps each response well under MCP's 1 MB limit.
+    """
+    data = _load(job_id)
+    if data is None:
+        return {"status": "not_found"}
+    if data["status"] != "done":
+        elapsed = (data.get("finished_at") or time.time()) - data.get("started_at", time.time())
+        out = {"status": data["status"], "elapsed_seconds": round(elapsed, 1)}
+        if data["status"] == "error":
+            out["error"] = data["error"]
         return out
+    result = data.get("result")
+    if not isinstance(result, dict):
+        return {"status": "done", "error": "result is not a dict"}
+    if section not in result:
+        return {"status": "done", "error": f"unknown section '{section}'",
+                "available_sections": list(result.keys())}
+    return {"status": "done", "section": section, "data": result[section]}
+
+
+def get_job_status(job_id: str) -> Dict[str, Any]:
+    """Lightweight status check — never includes the result payload."""
+    data = _load(job_id)
+    if data is None:
+        return {"status": "not_found"}
+    elapsed = (data.get("finished_at") or time.time()) - data.get("started_at", time.time())
+    out: Dict[str, Any] = {"status": data["status"], "elapsed_seconds": round(elapsed, 1)}
+    if data["status"] == "done":
+        result = data.get("result")
+        if isinstance(result, dict):
+            out["available_sections"] = list(result.keys())
+            out["events_count"] = result.get("events_count")
+            out["summary"] = result.get("summary")
+    elif data["status"] == "error":
+        out["error"] = data["error"]
+    return out
+
+
+def list_jobs() -> Dict[str, Any]:
+    """Return a summary of all known jobs (no result payloads)."""
+    ids = _list_ids()
+    jobs = []
+    for jid in sorted(ids):
+        data = _load(jid)
+        if data is None:
+            continue
+        elapsed = (data.get("finished_at") or time.time()) - data.get("started_at", time.time())
+        jobs.append({"job_id": jid, "status": data["status"], "elapsed_seconds": round(elapsed, 1)})
+    return {"jobs": jobs, "count": len(jobs)}

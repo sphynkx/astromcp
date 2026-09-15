@@ -53,6 +53,9 @@ HOST = _get_str("ASTROMCP_HOST", "0.0.0.0")
 PORT = _get_int("ASTROMCP_PORT", 8765)
 LOG_LEVEL = _get_str("ASTROMCP_LOG_LEVEL", "INFO")
 
+# --- Redis (optional, for persistent job storage) ---
+REDIS_URL = _get_str("ASTROMCP_REDIS_URL", "")
+
 # --- Astrological defaults ---
 DEFAULT_HOUSE_SYSTEM = _get_str("ASTROMCP_HOUSE_SYSTEM", "P")
 DEFAULT_ZODIAC_TYPE = _get_str("ASTROMCP_ZODIAC_TYPE", "Tropic")

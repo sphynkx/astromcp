@@ -11,3 +11,7 @@ geonamescache>=2.0.0   # offline city-name -> coordinates lookup
 timezonefinder>=6.5.0  # offline coordinates -> modern IANA timezone lookup
 Babel>=2.14.0          # offline CLDR country-name lookup (engine/geocode.py's
                        # Russian country-name support - resolve_country_code)
+
+# Optional: persistent job storage (pipeline results survive restarts).
+# Without this, jobs.py falls back to in-memory storage automatically.
+redis>=5.0.0

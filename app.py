@@ -28,7 +28,7 @@ from engine import svg_chart
 from engine import photo_fetch
 from engine.geocode import GeocodeError
 from engine.pipeline import run_rectification_pipeline
-from engine.jobs import submit_job, get_job
+from engine.jobs import submit_job, get_job, get_job_section, get_job_status, list_jobs
 
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL, logging.INFO))
 logger = logging.getLogger("astromcp")
@@ -1098,14 +1098,87 @@ def rectif_pipeline_start(
 
 
 @mcp.tool()
-def rectif_pipeline_result(job_id: str) -> Dict[str, Any]:
+def rectif_pipeline_result(job_id: str, section: Optional[str] = None) -> Dict[str, Any]:
     """
-    Poll for a rectif_pipeline_start job's result. Returns:
-      status="running" — still computing
-      status="done" + result={...} — complete pipeline output
-      status="error" + error="..." — pipeline failed
+    Retrieve a rectif_pipeline_start job's result.
+
+    Without `section`: returns lightweight status + summary (never the
+    full payload — that would exceed MCP's 1 MB limit for large jobs).
+
+    With `section`: returns one top-level slice of the result. Call with
+    no section first to see `available_sections`, then fetch each one.
+
+    Valid section names (after job completes):
+      trutina, movements_scan, movements_intersection, auxiliary,
+      candidate_verification, summary, elapsed_seconds, natal,
+      scan_range, events_count, fixed_offset_minutes
+
+    Typical workflow:
+      1. rectif_pipeline_result(job_id)          → status + available_sections
+      2. rectif_pipeline_result(job_id, "trutina")           → Trutina data
+      3. rectif_pipeline_result(job_id, "movements_scan")    → all events' windows
+      4. rectif_pipeline_result(job_id, "candidate_verification") → matrix
+      5. rectif_pipeline_result(job_id, "auxiliary")          → Bonatti/Herich/clustering
+      6. rectif_pipeline_result(job_id, "movements_intersection") → intersection
     """
-    return get_job(job_id)
+    if section:
+        return get_job_section(job_id, section)
+    return get_job_status(job_id)
+
+
+# --- REST endpoints for job management ---
+
+@mcp.custom_route("/astro/jobs", methods=["GET"])
+async def astro_jobs_list(request: Request) -> JSONResponse:
+    """
+    GET /astro/jobs — list all known jobs with status (no payloads).
+
+    Example:
+      curl http://localhost:8765/astro/jobs
+    """
+    return JSONResponse(list_jobs())
+
+
+@mcp.custom_route("/astro/jobs/{job_id}", methods=["GET"])
+async def astro_jobs_get(request: Request) -> JSONResponse:
+    """
+    GET /astro/jobs/<job_id> — full result (WARNING: can be tens of MB).
+
+    Example:
+      curl http://localhost:8765/astro/jobs/b4be79e9be13 > result.json
+    """
+    job_id = request.path_params["job_id"]
+    return JSONResponse(get_job(job_id))
+
+
+@mcp.custom_route("/astro/jobs/{job_id}/status", methods=["GET"])
+async def astro_jobs_status(request: Request) -> JSONResponse:
+    """
+    GET /astro/jobs/<job_id>/status — lightweight status check.
+
+    Example:
+      curl http://localhost:8765/astro/jobs/b4be79e9be13/status
+    """
+    job_id = request.path_params["job_id"]
+    return JSONResponse(get_job_status(job_id))
+
+
+@mcp.custom_route("/astro/jobs/{job_id}/{section}", methods=["GET"])
+async def astro_jobs_section(request: Request) -> JSONResponse:
+    """
+    GET /astro/jobs/<job_id>/<section> — one section of the result.
+
+    Example:
+      curl http://localhost:8765/astro/jobs/b4be79e9be13/trutina
+      curl http://localhost:8765/astro/jobs/b4be79e9be13/movements_scan
+      curl http://localhost:8765/astro/jobs/b4be79e9be13/candidate_verification
+      curl http://localhost:8765/astro/jobs/b4be79e9be13/auxiliary
+      curl http://localhost:8765/astro/jobs/b4be79e9be13/movements_intersection
+      curl http://localhost:8765/astro/jobs/b4be79e9be13/summary
+    """
+    job_id = request.path_params["job_id"]
+    section = request.path_params["section"]
+    return JSONResponse(get_job_section(job_id, section))
 
 
 @mcp.custom_route("/astro/rectify", methods=["POST"])

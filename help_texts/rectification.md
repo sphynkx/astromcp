@@ -834,7 +834,7 @@ something was checked. Specifically:
 Also available as a REST endpoint: `POST /astro/rectify` with the same
 JSON body.
 
-## Performance / async
+## Performance / async / retrieving large results
 
 `rectif_scan` is synchronous and fine for a few hundred candidates times a
 handful of transit/progression/solar_arc/profection events. For anything
@@ -846,10 +846,61 @@ use `rectif_scan_start` + poll `rectif_scan_result` instead of blocking on
 `rectif_scan`. The same applies to `rectif_timoshenko_scan`/
 `rectif_bonatti_scan`/`rectif_herich_scan` over wide ranges.
 
-For the full rectification pipeline specifically, use `rectif_pipeline_start`
-+ `rectif_pipeline_result` when the event list exceeds ~30 events or the
-scan range exceeds ~60 minutes — the synchronous `rectif_pipeline` may
-exceed MCP timeout limits for large inputs.
+For the full rectification pipeline specifically, **always use
+`rectif_pipeline_start` + `rectif_pipeline_result`** (never the
+synchronous `rectif_pipeline`) — a real 71-event run takes ~30 minutes.
+
+### Retrieving pipeline results in sections
+
+A 70+ event pipeline produces results that exceed MCP's 1 MB tool-result
+limit. **`rectif_pipeline_result` supports sectioned retrieval:**
+
+```
+# Step 1: check status (lightweight, no payload)
+rectif_pipeline_result(job_id="abc123")
+→ {status: "done", available_sections: [...], summary: {...}}
+
+# Step 2: fetch sections one by one
+rectif_pipeline_result(job_id="abc123", section="trutina")
+rectif_pipeline_result(job_id="abc123", section="movements_scan")
+rectif_pipeline_result(job_id="abc123", section="movements_intersection")
+rectif_pipeline_result(job_id="abc123", section="auxiliary")
+rectif_pipeline_result(job_id="abc123", section="candidate_verification")
+rectif_pipeline_result(job_id="abc123", section="summary")
+```
+
+### REST endpoints for manual access
+
+Results are also available via REST — useful for manual inspection,
+debugging, or piping into jq/scripts:
+
+```bash
+# List all jobs
+curl http://localhost:8765/astro/jobs
+
+# Check job status (lightweight)
+curl http://localhost:8765/astro/jobs/abc123/status
+
+# Fetch one section
+curl http://localhost:8765/astro/jobs/abc123/trutina
+curl http://localhost:8765/astro/jobs/abc123/movements_scan
+curl http://localhost:8765/astro/jobs/abc123/candidate_verification
+curl http://localhost:8765/astro/jobs/abc123/auxiliary
+curl http://localhost:8765/astro/jobs/abc123/movements_intersection
+
+# Full result (WARNING: can be tens of MB)
+curl http://localhost:8765/astro/jobs/abc123 > full_result.json
+
+# Pretty-print a section with jq
+curl -s http://localhost:8765/astro/jobs/abc123/summary | jq .
+```
+
+### Job persistence (Redis)
+
+By default, jobs are stored in memory and lost on service restart. Set
+`ASTROMCP_REDIS_URL=redis://localhost:6379/0` in .env to persist jobs in
+Redis — results survive restarts and are kept for 3 days. **Strongly
+recommended for production use with pipeline runs.**
 
 ## Sources surveyed
 
