@@ -656,6 +656,79 @@ For events that happened far from the birth location, use
 B. Hammerslaf's rectification book uses 300 miles as a rule of thumb for
 when this matters - rather than only checking the natal-location angles.
 
+## Pipeline tool: `rectif_pipeline` — the recommended approach
+
+**For any rectification with more than a handful of events, use
+`rectif_pipeline` (or its async variant `rectif_pipeline_start` +
+`rectif_pipeline_result`) instead of calling individual tools one by one.**
+
+This tool runs the entire mandatory sequence (steps 2-11) server-side
+in a single call:
+  1. Trutina Hermetis (with mother's data if provided)
+  2. `rectif_movements_scan` for every event in the list, parallelized
+  3. Automatic intersection of qualifying windows across all events
+  4. Auxiliary scans: Bonatti, Herich, degree_clustering
+  5. Direct `solar_arc` + `secondary_progression` (+ transit/profection/
+     lunar_return where applicable) verification for each candidate time
+     against every event
+
+The Claude side's job is:
+  - Assess source quality (step 1) — this is interpretive, not computable
+  - Prepare the annotated event list: for each event, specify `name`,
+    `year/month/day`, `precision` ("datetime"|"date"|"month"|"year"),
+    `target_houses` (reasoned per-event via house-derivation logic),
+    `category` ("personal"|"career"|"minor"), and `hour/minute/second`
+    when known
+  - Optionally provide `candidate_times` — specific birth times to verify
+    (e.g. from documented sources: birth certificate, family testimony)
+  - Receive the full result matrix and produce the verdict + report
+
+**Event precision governs technique selection server-side:**
+  - `"datetime"` (date + clock time known): transit, solar_arc,
+    secondary_progression, profection, lunar_return
+  - `"date"` (exact day known, no clock time): solar_arc,
+    secondary_progression, profection, lunar_return
+  - `"month"` (year + month known): solar_arc, secondary_progression
+  - `"year"` (only year known): solar_arc, secondary_progression — but
+    the result is less reliable (a month-level uncertainty in the event
+    date shifts the solar arc by a fraction of a degree, still useful;
+    a year-level uncertainty can shift it by ~1 degree, which is at the
+    edge of normal orb tolerances — use with caution)
+
+**Input schema (events list):**
+```json
+[
+  {
+    "name": "Death of father",
+    "year": 1903, "month": 1, "day": 3,
+    "precision": "date",
+    "target_houses": [4, 8, 11],
+    "category": "personal"
+  },
+  {
+    "name": "Own death",
+    "year": 1945, "month": 4, "day": 30,
+    "hour": 15, "minute": 15,
+    "precision": "datetime",
+    "target_houses": [1, 8, 12],
+    "category": "personal",
+    "tz_offset_minutes": 60
+  }
+]
+```
+
+**Output structure:**
+  - `trutina` — four-branch Trutina Hermetis result
+  - `movements_scan` — per-event qualifying windows
+  - `movements_intersection` — strict (3/3) and relaxed (2/3) time sets
+  - `auxiliary` — Bonatti, Herich, degree_clustering results
+  - `candidate_verification` — per-candidate × per-event technique matrix
+    with best angular aspects and orbs
+  - `summary` — event counts, cell counts, completeness
+
+Also available as a REST endpoint: `POST /astro/rectify` with the same
+JSON body.
+
 ## Performance / async
 
 `rectif_scan` is synchronous and fine for a few hundred candidates times a
@@ -667,6 +740,11 @@ scan well past MCP/proxy timeouts even though the server keeps working) -
 use `rectif_scan_start` + poll `rectif_scan_result` instead of blocking on
 `rectif_scan`. The same applies to `rectif_timoshenko_scan`/
 `rectif_bonatti_scan`/`rectif_herich_scan` over wide ranges.
+
+For the full rectification pipeline specifically, use `rectif_pipeline_start`
++ `rectif_pipeline_result` when the event list exceeds ~30 events or the
+scan range exceeds ~60 minutes — the synchronous `rectif_pipeline` may
+exceed MCP timeout limits for large inputs.
 
 ## Sources surveyed
 

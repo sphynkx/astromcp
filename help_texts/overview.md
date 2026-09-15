@@ -45,6 +45,13 @@ far).
   land across many event dates to suggest a candidate angular degree -
   the one rectification tool here that needs no birth-time scan at all,
   only event dates.
+- **`rectif_pipeline`** / `rectif_pipeline_start` + `rectif_pipeline_result`
+  - **the recommended entry point for rectification.** Runs the entire
+  mandatory sequence (Trutina, movements_scan for every event, intersection,
+  auxiliary checks, direct verification of candidates) server-side in one
+  call. Accepts birth data + annotated event list, returns the full data
+  matrix. See `help("rectification")` section "Pipeline tool". Also
+  available as REST: `POST /astro/rectify`.
 - `horary_chart` - builds and judges a horary chart (a question asked at
   a specific moment/place - "will I get this job?", "where is my lost
   cat?") per classical horary technique: radicality, significators with

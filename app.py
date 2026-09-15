@@ -27,6 +27,8 @@ from engine import public_api
 from engine import svg_chart
 from engine import photo_fetch
 from engine.geocode import GeocodeError
+from engine.pipeline import run_rectification_pipeline
+from engine.jobs import submit_job, get_job
 
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL, logging.INFO))
 logger = logging.getLogger("astromcp")
@@ -978,6 +980,151 @@ def _astro_svg_error(message: str, status_code: int) -> Response:
         '</svg>'
     )
     return Response(svg, media_type="image/svg+xml", status_code=status_code)
+
+
+@mcp.tool()
+def rectif_pipeline(
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_lat: float, natal_lng: float,
+    natal_tz_str: Optional[str] = None,
+    natal_tz_offset_minutes: Optional[int] = None,
+    house_system: str = "K",
+    zodiac_type: str = config.DEFAULT_ZODIAC_TYPE,
+    scan_start_hour: int = 0, scan_start_minute: int = 0,
+    scan_end_hour: int = 23, scan_end_minute: int = 59,
+    step_minutes: int = 1,
+    events: Optional[List[Dict[str, Any]]] = None,
+    mother_year: Optional[int] = None, mother_month: Optional[int] = None, mother_day: Optional[int] = None,
+    mother_hour: Optional[int] = None, mother_minute: Optional[int] = None, mother_second: Optional[int] = None,
+    mother_lat: Optional[float] = None, mother_lng: Optional[float] = None,
+    mother_tz_str: Optional[str] = None, mother_tz_offset_minutes: Optional[int] = None,
+    initial_guess_hour: Optional[int] = None, initial_guess_minute: Optional[int] = None,
+    direction_orb_deg: float = 0.5,
+    transit_orb_deg: float = 1.5,
+    candidate_times: Optional[List[Dict[str, int]]] = None,
+) -> Dict[str, Any]:
+    """
+    Full rectification pipeline — runs the ENTIRE mandatory sequence from
+    the rectification methodology server-side in one call.
+
+    Accepts birth data + an annotated event list, returns structured data
+    covering:
+      - Trutina Hermetis (step 2)
+      - Movements scan per event (steps 4-7)
+      - Window intersection across all events (step 8)
+      - Auxiliary checks: Bonatti, Herich, degree_clustering (step 9)
+      - Direct solar_arc + secondary_progression + transit/profection/
+        lunar_return verification per candidate × per event (step 11)
+
+    Each event in `events`:
+      name (str) — label; year/month/day (int) — date;
+      hour/minute/second (int, optional) — time if known;
+      precision ("datetime"|"date"|"month"|"year") — governs which
+        techniques apply;
+      target_houses (list[int]) — houses relevant to this event (required);
+      category ("personal"|"career"|"minor") — for priority weighting in
+        the report (not in computation).
+
+    `candidate_times` (optional) — explicit [{hour, minute, second}, ...]
+    to verify; if omitted, derived from intersection + scan midpoint.
+
+    Returns the full data matrix for Claude to interpret and render the
+    final verdict + mandatory report tables.
+    """
+    if not events:
+        return {"error": "events list is required and must be non-empty"}
+    try:
+        return run_rectification_pipeline(
+            natal_year, natal_month, natal_day, natal_lat, natal_lng,
+            natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
+            scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
+            step_minutes, events,
+            mother_year, mother_month, mother_day,
+            mother_hour, mother_minute, mother_second,
+            mother_lat, mother_lng, mother_tz_str, mother_tz_offset_minutes,
+            initial_guess_hour, initial_guess_minute,
+            direction_orb_deg, transit_orb_deg, candidate_times,
+        )
+    except Exception as e:
+        logger.exception("rectif_pipeline failed")
+        return {"error": str(e)}
+
+
+@mcp.tool()
+def rectif_pipeline_start(
+    natal_year: int, natal_month: int, natal_day: int,
+    natal_lat: float, natal_lng: float,
+    natal_tz_str: Optional[str] = None,
+    natal_tz_offset_minutes: Optional[int] = None,
+    house_system: str = "K",
+    zodiac_type: str = config.DEFAULT_ZODIAC_TYPE,
+    scan_start_hour: int = 0, scan_start_minute: int = 0,
+    scan_end_hour: int = 23, scan_end_minute: int = 59,
+    step_minutes: int = 1,
+    events: Optional[List[Dict[str, Any]]] = None,
+    mother_year: Optional[int] = None, mother_month: Optional[int] = None, mother_day: Optional[int] = None,
+    mother_hour: Optional[int] = None, mother_minute: Optional[int] = None, mother_second: Optional[int] = None,
+    mother_lat: Optional[float] = None, mother_lng: Optional[float] = None,
+    mother_tz_str: Optional[str] = None, mother_tz_offset_minutes: Optional[int] = None,
+    initial_guess_hour: Optional[int] = None, initial_guess_minute: Optional[int] = None,
+    direction_orb_deg: float = 0.5,
+    transit_orb_deg: float = 1.5,
+    candidate_times: Optional[List[Dict[str, int]]] = None,
+) -> Dict[str, Any]:
+    """
+    Async version of rectif_pipeline — submits the full pipeline as a
+    background job and returns immediately with a job_id. Poll with
+    rectif_pipeline_result(job_id) to check status and retrieve the result.
+
+    Use this for large event lists (30+ events) where the synchronous
+    version might exceed MCP/proxy timeouts.
+    """
+    if not events:
+        return {"error": "events list is required and must be non-empty"}
+    job_id = submit_job(
+        run_rectification_pipeline,
+        natal_year, natal_month, natal_day, natal_lat, natal_lng,
+        natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
+        scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
+        step_minutes, events,
+        mother_year, mother_month, mother_day,
+        mother_hour, mother_minute, mother_second,
+        mother_lat, mother_lng, mother_tz_str, mother_tz_offset_minutes,
+        initial_guess_hour, initial_guess_minute,
+        direction_orb_deg, transit_orb_deg, candidate_times,
+    )
+    logger.info("pipeline job %s submitted (%d events)", job_id, len(events))
+    return {"job_id": job_id, "status": "running", "events_count": len(events)}
+
+
+@mcp.tool()
+def rectif_pipeline_result(job_id: str) -> Dict[str, Any]:
+    """
+    Poll for a rectif_pipeline_start job's result. Returns:
+      status="running" — still computing
+      status="done" + result={...} — complete pipeline output
+      status="error" + error="..." — pipeline failed
+    """
+    return get_job(job_id)
+
+
+@mcp.custom_route("/astro/rectify", methods=["POST"])
+async def astro_rectify(request: Request) -> JSONResponse:
+    """
+    REST endpoint for the rectification pipeline. Accepts the same JSON
+    body as the rectif_pipeline MCP tool. Returns the full pipeline result.
+
+    POST /astro/rectify
+    Content-Type: application/json
+    Body: same schema as rectif_pipeline parameters
+    """
+    try:
+        body = await request.json()
+        result = run_rectification_pipeline(**body)
+        return JSONResponse(result)
+    except Exception as e:
+        logger.exception("REST /astro/rectify failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @mcp.tool()
