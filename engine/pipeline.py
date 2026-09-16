@@ -62,17 +62,59 @@ def _build_natal(natal, cand_hour, cand_minute, cand_second, fixed_offset):
 
 
 # ---------------------------------------------------------------------------
+# Helper: resolve event date fields based on precision
+# ---------------------------------------------------------------------------
+
+class _EventTooImprecise(Exception):
+    """Raised when an event's precision is too coarse for the technique."""
+    pass
+
+
+def _resolve_event_date(ev, require_day=True):
+    """
+    Return (year, month, day) from an event dict, applying sensible defaults
+    based on its ``precision`` field:
+
+    - ``"date"`` / ``"datetime"``: year, month, day must all be present.
+    - ``"month"``: year and month present; day defaults to 15.
+    - ``"year"``: only year present.
+        - If *require_day* is True (SA, SP, movements, transits),
+          raise ``_EventTooImprecise`` — a ±6-month uncertainty exceeds
+          the direction orb, making the result meaningless.
+        - If *require_day* is False (future use / lenient mode),
+          default to month=7, day=1.
+    """
+    year = ev["year"]
+    precision = ev.get("precision", "date")
+
+    if precision in ("date", "datetime"):
+        return year, ev["month"], ev["day"]
+
+    if precision == "month":
+        return year, ev["month"], ev.get("day", 15)
+
+    # precision == "year"
+    if require_day:
+        raise _EventTooImprecise(
+            f"precision={precision!r}: year-only events are too imprecise "
+            f"for direction / movement techniques (±6 months ≈ ±0.5° solar arc)"
+        )
+    return year, ev.get("month", 7), ev.get("day", 1)
+
+
+# ---------------------------------------------------------------------------
 # Per-event technique runners
 # ---------------------------------------------------------------------------
 
 def _run_solar_arc_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev):
     """Solar arc direction for one event at one candidate time. Returns aspects list."""
+    ev_year, ev_month, ev_day = _resolve_event_date(ev)
     computed, natal_pts, meta = technique_solar_arc(
         natal["year"], natal["month"], natal["day"], cand_h, cand_m, cand_s,
         natal["lat"], natal["lng"], fixed_offset,
         natal["house_system"], natal.get("zodiac_type", "Tropic"),
         n_raw, n_points,
-        ev["year"], ev["month"], ev["day"],
+        ev_year, ev_month, ev_day,
     )
     asp_set = config.DEFAULT_ASPECT_SET
     orb_tbl = config.DEFAULT_ORB_TABLE_DIRECTION
@@ -86,12 +128,13 @@ def _run_solar_arc_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw,
 
 
 def _run_secondary_progression_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev):
+    ev_year, ev_month, ev_day = _resolve_event_date(ev)
     computed, natal_pts, meta = technique_secondary_progression(
         natal["year"], natal["month"], natal["day"], cand_h, cand_m, cand_s,
         natal["lat"], natal["lng"], fixed_offset,
         natal["house_system"], natal.get("zodiac_type", "Tropic"),
         n_raw, n_points,
-        ev["year"], ev["month"], ev["day"],
+        ev_year, ev_month, ev_day,
         "solar_arc_naibod",
     )
     aspects = compute_aspects(
@@ -115,9 +158,10 @@ def _run_transit_for_event(natal, n_raw, n_points, ev):
     ev_tz_off = ev.get("event_tz_offset_minutes")
     if ev_tz_str is None and ev_tz_off is None:
         ev_tz_off = 0
+    ev_year, ev_month, ev_day = _resolve_event_date(ev)
     computed, natal_pts, meta = technique_transit(
         n_raw, n_points,
-        ev["year"], ev["month"], ev["day"],
+        ev_year, ev_month, ev_day,
         ev.get("hour", 12), ev.get("minute", 0), ev.get("second", 0),
         ev.get("event_lat", natal["lat"]), ev.get("event_lng", natal["lng"]),
         ev_tz_str, ev_tz_off,
@@ -139,11 +183,12 @@ def _run_profection_for_event(natal, n_raw, n_points, ev):
     ev_tz_off = ev.get("event_tz_offset_minutes")
     if ev_tz_str is None and ev_tz_off is None:
         ev_tz_off = 0
+    ev_year, ev_month, ev_day = _resolve_event_date(ev)
     computed, natal_pts, meta = technique_profection(
         natal["year"], natal["month"], natal["day"],
         n_raw, n_points,
         natal["house_system"], natal.get("zodiac_type", "Tropic"),
-        ev["year"], ev["month"], ev["day"],
+        ev_year, ev_month, ev_day,
         ev.get("hour", 12), ev.get("minute", 0), ev.get("second", 0),
         ev.get("event_lat", natal["lat"]), ev.get("event_lng", natal["lng"]),
         ev_tz_str, ev_tz_off,
@@ -160,10 +205,11 @@ def _run_profection_for_event(natal, n_raw, n_points, ev):
 
 
 def _run_lunar_return_for_event(natal, n_raw, n_points, ev):
+    ev_year, ev_month, ev_day = _resolve_event_date(ev)
     computed, natal_pts, meta = technique_lunar_return(
         n_raw, n_points,
         natal["house_system"], natal.get("zodiac_type", "Tropic"),
-        ev["year"], ev["month"], ev["day"],
+        ev_year, ev_month, ev_day,
         ev.get("event_lat", natal["lat"]), ev.get("event_lng", natal["lng"]),
     )
     aspects = compute_aspects(
@@ -213,7 +259,7 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
     results = {}
     precision = ev.get("precision", "date")  # "datetime", "date", "month", "year"
 
-    # Solar arc — mandatory for all events
+    # Solar arc — needs at least month-level precision
     try:
         sa = _run_solar_arc_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev)
         best = _best_angular_aspect(sa["aspects"])
@@ -223,10 +269,12 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
             "angular_aspects_under_1deg": len(_extract_angular_aspects(sa["aspects"], 1.0)),
             "meta": sa["meta"],
         }
+    except _EventTooImprecise as e:
+        results["solar_arc"] = {"error": str(e)}
     except Exception as e:
         results["solar_arc"] = {"error": str(e)}
 
-    # Secondary progression — mandatory for all events
+    # Secondary progression — needs at least month-level precision
     try:
         sp = _run_secondary_progression_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev)
         best = _best_angular_aspect(sp["aspects"])
@@ -235,6 +283,8 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
             "total_aspects": len(sp["aspects"]),
             "angular_aspects_under_1deg": len(_extract_angular_aspects(sp["aspects"], 1.0)),
         }
+    except _EventTooImprecise as e:
+        results["secondary_progression"] = {"error": str(e)}
     except Exception as e:
         results["secondary_progression"] = {"error": str(e)}
 
@@ -384,12 +434,13 @@ def run_rectification_pipeline(
     def _run_movements_for_event(ev):
         name = ev["name"]
         try:
+            ev_year, ev_month, ev_day = _resolve_event_date(ev)
             r = run_three_movements_scan(
                 natal_year, natal_month, natal_day, natal_lat, natal_lng,
                 natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,
                 scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
                 step_minutes,
-                ev["year"], ev["month"], ev["day"],
+                ev_year, ev_month, ev_day,
                 ev.get("hour", 12), ev.get("minute", 0), ev.get("second", 0),
                 ev.get("target_houses"), None,
                 direction_orb_deg, transit_orb_deg,
@@ -397,6 +448,9 @@ def run_rectification_pipeline(
                 event_tz_str=ev.get("event_tz_str"), event_tz_offset_minutes=ev.get("event_tz_offset_minutes"),
             )
             return name, r
+        except _EventTooImprecise as e:
+            logger.info("pipeline: movements_scan skipped for %s (%s)", name, e)
+            return name, {"skipped": True, "reason": str(e)}
         except Exception as e:
             logger.exception("pipeline: movements_scan failed for %s", name)
             return name, {"error": str(e)}
@@ -446,10 +500,13 @@ def run_rectification_pipeline(
         auxiliary["herich"] = {"error": str(e)}
 
     # Degree clustering — needs enough events with exact dates
-    dated_events = [
-        {"year": ev["year"], "month": ev["month"], "day": ev["day"]}
-        for ev in events if ev.get("precision") in ("date", "datetime")
-    ]
+    dated_events = []
+    for ev in events:
+        try:
+            y, m, d = _resolve_event_date(ev)
+            dated_events.append({"year": y, "month": m, "day": d})
+        except _EventTooImprecise:
+            pass  # year-only events excluded from clustering
     if len(dated_events) >= 10:
         try:
             auxiliary["degree_clustering"] = {
@@ -581,7 +638,7 @@ def _compute_intersection(movements_results, step_seconds):
     all_2of3 = []
 
     for name, r in movements_results.items():
-        if "error" in r:
+        if "error" in r or r.get("skipped"):
             continue
         windows = r.get("qualifying_windows", [])
         s3 = _windows_to_second_set(windows, concordance_min=3)
