@@ -1,7 +1,33 @@
 """
-Rectification scan engine: sweeps a range of candidate birth times, applies
-a set of events (each with its own technique) to each candidate, scores
-aspect hits, and returns a ranked table of candidates.
+Rectification scan engine: sweeps a range of candidate birth times and, for
+each candidate, runs a set of events (each with its own technique) against
+it - returning the REAL aspects found, not a score.
+
+REWRITTEN to remove an invented scoring/ranking mechanism (summing per-
+event "hits" into a weighted total_score, then ranking candidates by that
+sum) that directly contradicted help_texts/rectification.md's "Absolute
+rule: never invent a scoring or weighting scheme" - the old code combined
+heterogeneous events into one made-up joint number and sorted by it, which
+is exactly what that rule prohibits, and even include_full_table=True only
+ever returned counts, never the real angle/orb/point data a person would
+need to actually verify a candidate.
+
+What this returns now, per candidate: the REAL matched aspects for every
+event (point_a, point_b, aspect_deg, exact_orb, status - the same shape
+`rectif_technique` returns), plus a single navigational aid,
+`tightest_real_orb_deg` - the single closest REAL aspect found for that
+candidate, across whichever one event happened to produce it. This is not
+a combined/weighted score: it is not a sum, not multiplied by any weight,
+and does not combine unlike things into one made-up quantity - it is
+literally "the tightest angular orb this candidate actually showed",
+directly meaningful in degrees on its own terms, the same way any single
+`rectif_technique` result's tightest aspect is. It exists purely so a
+person or LLM sweeping hundreds of candidates has somewhere reasonable to
+look first; it is NOT evidence of anything by itself and must still be
+read via the real per-event aspect data (or re-verified with an individual
+`rectif_technique`/`rectif_movements_scan` call) before any candidate is
+treated as confirmed - exactly the same "convenience sweep only" status
+rectification.md already assigns this tool.
 
 Supports second-level precision via step_seconds (falls back to
 step_minutes * 60 if step_seconds is not given), for narrowing a candidate
@@ -84,8 +110,9 @@ def run_scan(
         n_raw = subject_raw(natal_subject)
         n_points = natal_points_dict(natal_subject)
 
-        per_event = {}
-        total_score = 0.0
+        per_event: Dict[str, Any] = {}
+        tightest_orb: Optional[float] = None
+        tightest_detail: Optional[Dict[str, Any]] = None
 
         for ev in events:
             name = ev["name"]
@@ -171,44 +198,68 @@ def run_scan(
 
             asp_set = ev.get("aspect_set", list(aspect_set))
             aspects = compute_aspects(computed, natal_pts, asp_set, orb_tbl, bonus, LUMINARY_NAMES)
+            ev_orb_threshold = ev.get("orb_threshold", orb_threshold)
 
             if technique == "profection":
                 # Profections make a narrow, specific claim (just the Lord of
-                # Year/Month/profected Ascendant) - score against ALL of
-                # natal_pts (already narrowed to exactly those points by
-                # technique_profection), not target_houses/target_points.
-                ev_orb_threshold = ev.get("orb_threshold", orb_threshold)
-                score = sum(1 for a in aspects if a["exact_orb"] <= ev_orb_threshold)
+                # Year/Month/profected Ascendant) - natal_pts is already
+                # narrowed to exactly those points by technique_profection,
+                # so every aspect within orb is relevant, not just ones
+                # matching target_houses/target_points.
+                matched = [a for a in aspects if a["exact_orb"] <= ev_orb_threshold]
             else:
                 if "target_houses" in ev:
                     ev_target_points = get_house_element_names(n_raw, ev["target_houses"])
                 else:
                     ev_target_points = ev.get("target_points", list(target_points))
-                ev_orb_threshold = ev.get("orb_threshold", orb_threshold)
-                score = sum(
-                    1 for a in aspects
+                matched = [
+                    a for a in aspects
                     if a["point_b"] in ev_target_points and a["exact_orb"] <= ev_orb_threshold
-                )
+                ]
 
-            weight = ev.get("weight", 1.0)
-            weighted_score = score * weight
-            total_score += weighted_score
-            per_event[name] = {"score": score, "weighted_score": weighted_score}
+            # Real data only - the actual aspects that matched, not a count.
+            per_event[name] = {"technique": technique, "matched_aspects": matched}
+
+            for a in matched:
+                if tightest_orb is None or a["exact_orb"] < tightest_orb:
+                    tightest_orb = a["exact_orb"]
+                    tightest_detail = {"event": name, "technique": technique, **a}
 
         results.append({
             "hour": cand_hour,
             "minute": cand_minute,
             "second": cand_second,
-            "total_score": round(total_score, 4),
+            "tightest_real_orb_deg": tightest_orb,
+            "tightest_real_orb_detail": tightest_detail,
             "per_event": per_event,
         })
 
-    results_sorted = sorted(results, key=lambda r: -r["total_score"])
+    # Sort ONLY by the single tightest real aspect a candidate produced -
+    # navigational convenience over one real measurement, never a combined/
+    # weighted score across events. Candidates with no matched aspect at
+    # all (tightest_real_orb_deg is None) sort last, listed separately
+    # below rather than silently dropped.
+    with_hits = [r for r in results if r["tightest_real_orb_deg"] is not None]
+    without_hits = [r for r in results if r["tightest_real_orb_deg"] is None]
+    with_hits.sort(key=lambda r: r["tightest_real_orb_deg"])
 
     out = {
         "candidates_tested": len(results),
         "step_seconds": step,
-        "top_results": results_sorted[:top_n],
+        "note": (
+            "top_by_tightest_single_aspect is sorted by tightest_real_orb_deg "
+            "- the single closest REAL aspect each candidate produced across "
+            "all events - NOT a summed/weighted score across events (this "
+            "tool no longer computes one; see help_texts/rectification.md's "
+            "'Absolute rule: never invent a scoring or weighting scheme'). "
+            "Read per_event.matched_aspects (or tightest_real_orb_detail) for "
+            "the actual angle/orb/point data before treating any candidate "
+            "as confirmed - this ordering is where to look first, not a "
+            "verdict. Re-verify a promising candidate with an individual "
+            "rectif_technique or rectif_movements_scan call."
+        ),
+        "candidates_with_no_matched_aspect": len(without_hits),
+        "top_by_tightest_single_aspect": with_hits[:top_n],
     }
     if include_full_table:
         out["full_table"] = results

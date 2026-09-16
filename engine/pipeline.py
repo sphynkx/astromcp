@@ -108,7 +108,13 @@ def _resolve_event_date(ev, require_day=True):
 
 def _run_solar_arc_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev):
     """Solar arc direction for one event at one candidate time. Returns aspects list."""
-    ev_year, ev_month, ev_day = _resolve_event_date(ev)
+    # require_day=False: per help_texts/rectification.md "Directions are
+    # mandatory for imprecise dates, not optional" - solar arc moves
+    # about 1 deg/year, so even a full +/-6 month uncertainty (a year-only
+    # event defaulted to July 1) is well inside normal orb tolerances and
+    # still contributes real evidence. Only transit genuinely needs an
+    # exact date.
+    ev_year, ev_month, ev_day = _resolve_event_date(ev, require_day=False)
     computed, natal_pts, meta = technique_solar_arc(
         natal["year"], natal["month"], natal["day"], cand_h, cand_m, cand_s,
         natal["lat"], natal["lng"], fixed_offset,
@@ -128,7 +134,9 @@ def _run_solar_arc_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw,
 
 
 def _run_secondary_progression_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev):
-    ev_year, ev_month, ev_day = _resolve_event_date(ev)
+    # require_day=False - see _run_solar_arc_for_event's comment above;
+    # secondary progression is likewise a year-scale technique.
+    ev_year, ev_month, ev_day = _resolve_event_date(ev, require_day=False)
     computed, natal_pts, meta = technique_secondary_progression(
         natal["year"], natal["month"], natal["day"], cand_h, cand_m, cand_s,
         natal["lat"], natal["lng"], fixed_offset,
@@ -183,7 +191,10 @@ def _run_profection_for_event(natal, n_raw, n_points, ev):
     ev_tz_off = ev.get("event_tz_offset_minutes")
     if ev_tz_str is None and ev_tz_off is None:
         ev_tz_off = 0
-    ev_year, ev_month, ev_day = _resolve_event_date(ev)
+    # require_day=False - profection is an annual/monthly technique keyed
+    # by elapsed whole years, not sensitive to which day within a year an
+    # imprecise event is defaulted to.
+    ev_year, ev_month, ev_day = _resolve_event_date(ev, require_day=False)
     computed, natal_pts, meta = technique_profection(
         natal["year"], natal["month"], natal["day"],
         n_raw, n_points,
@@ -205,7 +216,11 @@ def _run_profection_for_event(natal, n_raw, n_points, ev):
 
 
 def _run_lunar_return_for_event(natal, n_raw, n_points, ev):
-    ev_year, ev_month, ev_day = _resolve_event_date(ev)
+    # require_day=False - the lunar return nearest a defaulted mid-year
+    # date is still a real, if slightly less targeted, lunar return; far
+    # better than refusing to run the technique at all for a year-only
+    # event.
+    ev_year, ev_month, ev_day = _resolve_event_date(ev, require_day=False)
     computed, natal_pts, meta = technique_lunar_return(
         n_raw, n_points,
         natal["house_system"], natal.get("zodiac_type", "Tropic"),
@@ -259,7 +274,8 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
     results = {}
     precision = ev.get("precision", "date")  # "datetime", "date", "month", "year"
 
-    # Solar arc — needs at least month-level precision
+    # Solar arc — runs for every precision level, year-only included
+    # (see _run_solar_arc_for_event's own comment)
     try:
         sa = _run_solar_arc_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev)
         best = _best_angular_aspect(sa["aspects"])
@@ -274,7 +290,7 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
     except Exception as e:
         results["solar_arc"] = {"error": str(e)}
 
-    # Secondary progression — needs at least month-level precision
+    # Secondary progression — runs for every precision level, year-only included
     try:
         sp = _run_secondary_progression_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev)
         best = _best_angular_aspect(sp["aspects"])
@@ -301,30 +317,31 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
         except Exception as e:
             results["transit"] = {"error": str(e)}
 
-    # Profection — for date-level and above
-    if precision in ("date", "datetime"):
-        try:
-            pf = _run_profection_for_event(natal, n_raw, n_points, ev)
-            best = _best_angular_aspect(pf["aspects"])
-            results["profection"] = {
-                "best_angular_aspect": best,
-                "total_aspects": len(pf["aspects"]),
-            }
-        except Exception as e:
-            results["profection"] = {"error": str(e)}
+    # Profection — runs for every precision level (year-only events are
+    # defaulted to a mid-year date inside _run_profection_for_event; per
+    # rectification.md step 5, the full direction stack applies to every
+    # event without a known clock time, not just date-precision ones)
+    try:
+        pf = _run_profection_for_event(natal, n_raw, n_points, ev)
+        best = _best_angular_aspect(pf["aspects"])
+        results["profection"] = {
+            "best_angular_aspect": best,
+            "total_aspects": len(pf["aspects"]),
+        }
+    except Exception as e:
+        results["profection"] = {"error": str(e)}
 
-    # Lunar return — for date-level and above
-    if precision in ("date", "datetime"):
-        try:
-            lr = _run_lunar_return_for_event(natal, n_raw, n_points, ev)
-            best = _best_angular_aspect(lr["aspects"])
-            results["lunar_return"] = {
-                "best_angular_aspect": best,
-                "total_aspects": len(lr["aspects"]),
-                "meta": lr["meta"],
-            }
-        except Exception as e:
-            results["lunar_return"] = {"error": str(e)}
+    # Lunar return — same reasoning as profection above
+    try:
+        lr = _run_lunar_return_for_event(natal, n_raw, n_points, ev)
+        best = _best_angular_aspect(lr["aspects"])
+        results["lunar_return"] = {
+            "best_angular_aspect": best,
+            "total_aspects": len(lr["aspects"]),
+            "meta": lr["meta"],
+        }
+    except Exception as e:
+        results["lunar_return"] = {"error": str(e)}
 
     return results
 
@@ -434,7 +451,14 @@ def run_rectification_pipeline(
     def _run_movements_for_event(ev):
         name = ev["name"]
         try:
-            ev_year, ev_month, ev_day = _resolve_event_date(ev)
+            # require_day=False - two of Grishchenyuk's three movements
+            # (secondary progression, "perfection") are year-scale and
+            # insensitive to a defaulted day; only the transit component
+            # is date-sensitive, and the method's own >=2-of-3 threshold
+            # already tolerates one weaker movement. Excluding year-only
+            # events from movements_scan entirely contradicted
+            # rectification.md step 6 ("run for every event").
+            ev_year, ev_month, ev_day = _resolve_event_date(ev, require_day=False)
             r = run_three_movements_scan(
                 natal_year, natal_month, natal_day, natal_lat, natal_lng,
                 natal_tz_str, natal_tz_offset_minutes, house_system, zodiac_type,

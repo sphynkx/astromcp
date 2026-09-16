@@ -211,29 +211,41 @@ def rectif_scan(
     step_seconds: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    EXPLORATORY / HEURISTIC ONLY - this tool's scoring (summing a hit-count
-    across events into total_score, then ranking candidates by that number)
-    is NOT a documented rectification method from any surveyed source. It
-    was invented for this service and should not be presented as
-    "confirmed" or "the most likely time" on its own. Prefer
-    rectif_movements_scan (Grishchenyuk's literal 2-of-3 movements rule)
-    or another criterion-based tool for anything you intend to draw a
-    conclusion from; use this one only to get a rough sense of where to
-    aim a real criterion-based check, per help_texts/rectification.md.
+    Sweeps candidate birth times across [scan_start, scan_end] on the given
+    birth date (in step_minutes, or step_seconds for sub-minute precision)
+    and, for every candidate, runs every event in `events` and returns the
+    REAL aspects found - not a score. This tool no longer computes any
+    summed/weighted total across events: an earlier version did exactly
+    that (combining heterogeneous events into one made-up joint number and
+    ranking by it), which directly contradicted help_texts/
+    rectification.md's "Absolute rule: never invent a scoring or weighting
+    scheme" - that mechanism has been removed entirely, not just hidden.
 
-    Synchronous scan: sweeps candidate birth times across [scan_start,
-    scan_end] on the given birth date (in step_minutes, or step_seconds for
-    sub-minute precision), scores every event in `events` per candidate, and
-    returns the top_n candidates ranked by total score. Blocks until done -
-    fine for small scans, but a wide range with many events and/or
-    technique="solar_return" can take long enough to hit MCP/proxy timeouts.
-    For those, use rectif_scan_start + rectif_scan_result instead.
+    Results are sorted only by `tightest_real_orb_deg` - the single
+    closest REAL aspect each candidate produced, across whichever one
+    event happened to produce it. This is not a combined score (it is
+    never summed or multiplied by any weight); it is the same kind of
+    single real measurement an individual rectif_technique call would
+    show, used here purely as a navigational aid over a potentially large
+    sweep. Read `per_event`'s `matched_aspects` (real point_a/point_b/
+    aspect_deg/exact_orb/status, the same shape rectif_technique returns)
+    - or `tightest_real_orb_detail` - before treating any candidate as
+    confirmed, and re-verify a promising one with an individual
+    rectif_technique or rectif_movements_scan call. Prefer
+    rectif_movements_scan (Grishchenyuk's literal 2-of-3 movements rule)
+    or another criterion-based tool for drawing an actual conclusion; use
+    this one for the sweep mechanism only.
+
+    Blocks until done - fine for small scans, but a wide range with many
+    events and/or technique="solar_return" can take long enough to hit
+    MCP/proxy timeouts. For those, use rectif_scan_start + rectif_scan_result
+    instead.
 
     Each event dict: {name, technique: "transit"|"secondary_progression"|
     "solar_arc"|"solar_return"|"lunar_return"|"profection", target_year, target_month,
     target_day, target_hour?, target_minute?, target_second?, event_lat?,
     event_lng?, event_tz_str?, event_tz_offset_minutes?, angle_method?,
-    weight?, aspect_set?, orb_table?, target_points?, target_houses?,
+    aspect_set?, orb_table?, target_points?, target_houses?,
     orb_threshold?}. For technique="solar_return", only target_year is
     used. For technique="lunar_return", target_year/target_month/target_day
     together give the date to find the NEAREST lunar return to (lunar
