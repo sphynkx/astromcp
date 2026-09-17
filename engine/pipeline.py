@@ -423,9 +423,13 @@ def run_rectification_pipeline(
     }
 
     # -----------------------------------------------------------------------
-    # Step 2: Trutina Hermetis
+    # Step 2: Trutina Hermetis  (SUPPLEMENTARY ONLY)
+    #   Trutina is often inapplicable (mother's birth time rarely known)
+    #   and empirically unreliable in isolation.  Results are reported for
+    #   informational purposes only — NOT used in candidate selection or
+    #   any decision-making logic downstream.
     # -----------------------------------------------------------------------
-    logger.info("pipeline: running Trutina Hermetis...")
+    logger.info("pipeline: running Trutina Hermetis (supplementary)...")
     try:
         guess_h = initial_guess_hour if initial_guess_hour is not None else (scan_start_hour + scan_end_hour) // 2
         guess_m = initial_guess_minute if initial_guess_minute is not None else (scan_start_minute + scan_end_minute) // 2
@@ -437,10 +441,17 @@ def run_rectification_pipeline(
             mother_hour, mother_minute, mother_second,
             mother_lat, mother_lng, mother_tz_str, mother_tz_offset_minutes,
         )
+        trutina["_status"] = "supplementary_only"
+        trutina["_note"] = (
+            "Trutina Hermetis is reported for informational purposes only. "
+            "It is NOT used in candidate selection or scoring. "
+            "Mother's birth time is rarely available, and the method's "
+            "empirical reliability is low in isolation."
+        )
         result["trutina"] = trutina
     except Exception as e:
         logger.exception("pipeline: trutina failed")
-        result["trutina"] = {"error": str(e)}
+        result["trutina"] = {"error": str(e), "_status": "supplementary_only"}
 
     # -----------------------------------------------------------------------
     # Steps 4-7: Movements scan for every event (parallelized)
@@ -552,16 +563,26 @@ def run_rectification_pipeline(
     result["auxiliary"] = auxiliary
 
     # -----------------------------------------------------------------------
+    # Step 10b: Movements coverage heatmap
+    # -----------------------------------------------------------------------
+    heatmap = _movements_coverage_heatmap(movements_results, step_minutes * 60)
+    result["movements_coverage_heatmap"] = heatmap
+
+    # -----------------------------------------------------------------------
     # Step 11: Direct verification of candidate times via solar_arc
     # -----------------------------------------------------------------------
-    # Build candidate list from: explicitly provided, intersection peaks,
-    # most-corroborated-individual-events, scan midpoint (last resort) -
-    # see _build_candidate_list's own tiering and _most_corroborated_
-    # candidates' docstring for why the midpoint is no longer the first
-    # fallback once the intersections are empty.
+    # Build candidate list from:
+    #   A. Explicitly provided candidate_times
+    #   B. Initial-guess vicinity (±15 min) — ALWAYS, to ensure stated
+    #      time is verified even when movements points elsewhere
+    #   C. Movements intersection peaks
+    #   D. Most-corroborated-individual-events (fallback)
+    #   E. Scan range midpoint (last resort)
     cands, candidate_fallback_tier = _build_candidate_list(
         candidate_times, intersection, movements_results, step_minutes * 60,
         scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
+        initial_guess_hour=initial_guess_hour,
+        initial_guess_minute=initial_guess_minute,
     )
     result["candidate_selection_tier"] = candidate_fallback_tier
     logger.info(
@@ -711,6 +732,52 @@ def _compute_intersection(movements_results, step_seconds):
 
 
 # ---------------------------------------------------------------------------
+# Movements coverage heatmap
+# ---------------------------------------------------------------------------
+
+def _movements_coverage_heatmap(movements_results, step_seconds, top_n=30):
+    """
+    For each scanned minute, count how many events have qualifying
+    windows (at >=2/3 concordance) covering that minute.
+
+    Unlike the strict/relaxed intersection (which requires ALL events
+    to agree), this produces a "soft" score — the time(s) where the
+    MOST events' qualifying windows overlap.  Reported as a ranked
+    list so the human can compare movements-favored times against the
+    stated time, even when the strict intersection is empty.
+
+    Returns: list of {"time": "HH:MM:SS", "events_covering": N}
+    sorted by events_covering desc, then chronologically, top_n items.
+    """
+    from collections import defaultdict
+    coverage: Dict[int, int] = defaultdict(int)
+
+    for name, r in movements_results.items():
+        if "error" in r or r.get("skipped"):
+            continue
+        seen = set()
+        for w in r.get("qualifying_windows", []):
+            if w.get("movements_hit", 0) < 2:
+                continue
+            start = _time_to_seconds(w["start"])
+            end = _time_to_seconds(w["end"])
+            for s in range(start, end + 1, max(step_seconds, 60)):
+                seen.add(s)
+        for s in seen:
+            coverage[s] += 1
+
+    if not coverage:
+        return []
+
+    # Sort by coverage desc, then time asc
+    ranked = sorted(coverage.items(), key=lambda x: (-x[1], x[0]))
+    return [
+        {"time": _seconds_to_time(s), "events_covering": c}
+        for s, c in ranked[:top_n]
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Candidate list builder
 # ---------------------------------------------------------------------------
 
@@ -766,19 +833,46 @@ def _most_corroborated_candidates(movements_results, step_seconds, top_n=10):
 def _build_candidate_list(
     explicit_candidates, intersection, movements_results, step_seconds,
     start_h, start_m, end_h, end_m,
+    initial_guess_hour=None, initial_guess_minute=None,
 ):
-    """Build the list of candidate times to verify."""
+    """
+    Build the list of candidate times to verify.
+
+    ALWAYS includes the initial_guess zone (±15 min at 5-min steps) when
+    an initial guess is provided, regardless of whether movements covers
+    it.  This ensures the stated/documented birth time is always directly
+    verified by SA/SP target-house analysis, preventing false rejections
+    when movements points elsewhere due to dataset-size effects.
+
+    Movements-derived candidates are ALSO included so both zones get a
+    head-to-head comparison in a single pipeline run.
+    """
     cands = []
     fallback_tier = None
 
-    # 1. Explicitly provided candidates
+    # ----- A. Explicitly provided candidate_times (from the caller) --------
     if explicit_candidates:
         for c in explicit_candidates:
             cands.append({"hour": c["hour"], "minute": c["minute"], "second": c.get("second", 0)})
         if cands:
             fallback_tier = "explicit_candidates"
 
-    # 2. From intersection results — pick representative times
+    # ----- B. Initial-guess vicinity (ALWAYS included when provided) -------
+    #   Verifies stated/documented time ±15 min so the human always sees
+    #   how the source-time zone compares to whatever movements found.
+    if initial_guess_hour is not None and initial_guess_minute is not None:
+        guess_sec = initial_guess_hour * 3600 + initial_guess_minute * 60
+        for delta in [-15, -10, -5, 0, 5, 10, 15]:
+            sec = guess_sec + delta * 60
+            if sec < 0:
+                sec += 86400
+            sec = sec % 86400
+            c = {"hour": sec // 3600, "minute": (sec % 3600) // 60, "second": 0}
+            if not _cand_in_list(c, cands):
+                cands.append(c)
+        fallback_tier = fallback_tier or "initial_guess_vicinity"
+
+    # ----- C. From strict 3/3 intersection --------------------------------
     for time_str in intersection.get("strict_3of3_intersection", [])[:10]:
         parts = time_str.split(":")
         c = {"hour": int(parts[0]), "minute": int(parts[1]), "second": int(parts[2]) if len(parts) > 2 else 0}
@@ -786,7 +880,7 @@ def _build_candidate_list(
             cands.append(c)
             fallback_tier = fallback_tier or "strict_3of3_intersection"
 
-    # 3. From relaxed intersection (if strict is empty)
+    # ----- D. From relaxed 2/3 intersection (if strict empty) -------------
     if not intersection.get("strict_3of3_intersection"):
         for time_str in intersection.get("relaxed_2of3_intersection", [])[:10]:
             parts = time_str.split(":")
@@ -795,18 +889,16 @@ def _build_candidate_list(
                 cands.append(c)
                 fallback_tier = fallback_tier or "relaxed_2of3_intersection"
 
-    # 4. Most-corroborated-by-individual-events fallback, when BOTH
-    #    intersections above are empty - see _most_corroborated_candidates'
-    #    own docstring for why this is not invented scoring. Far more
-    #    informative than falling straight to the scan-range midpoint.
-    if not cands:
+    # ----- E. Most-corroborated individual events fallback ----------------
+    if len(cands) < 10:
         for c in _most_corroborated_candidates(movements_results, step_seconds):
             if not _cand_in_list(c, cands):
                 cands.append(c)
                 fallback_tier = fallback_tier or "most_corroborated_individual_events"
+            if len(cands) >= 20:
+                break
 
-    # 5. Scan range midpoint - absolute last resort, only when there is
-    #    truly no signal anywhere (e.g. every single event errored out).
+    # ----- F. Scan range midpoint (absolute last resort) ------------------
     if not cands:
         mid_h = (start_h + end_h) // 2
         mid_m = (start_m + end_m) // 2
