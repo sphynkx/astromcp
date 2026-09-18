@@ -176,10 +176,11 @@ def run_three_movements_scan(
         "qualifying_windows": windows,
         "note": (
             "qualifying_windows collapses consecutive qualifying candidates into "
-            "contiguous [start, end] ranges (each labeled with the concordance "
-            "level - 3_of_3 or 2_of_3 - the source's own stated threshold, not a "
-            "score) instead of listing every single candidate - this is not a "
-            "ranking, just a compact representation of the same pass/fail result. "
+            "contiguous [start, end] ranges (each labeled with a \"concordance\" "
+            "code - \"3/3\" or \"2/3\", meaning the source's own stated ~100%/~66% "
+            "probability threshold respectively - not a score) instead of "
+            "listing every single candidate - this is not a ranking, just a "
+            "compact representation of the same pass/fail result. "
             "If a very large fraction of the day qualifies (check "
             "candidates_qualifying_raw_count vs candidates_tested), the orbs are "
             "probably too loose to be useful for narrowing on this event alone - "
@@ -233,10 +234,16 @@ def _make_window(start: Dict[str, Any], end: Dict[str, Any]) -> Dict[str, Any]:
         "movements_hit": movements,
     }
     if movements in (2, 3):
-        window["concordance"] = (
-            "3_of_3 (source states ~100% probability)" if movements == 3
-            else "2_of_3 (source states ~66% probability)"
-        )
+        # Short code only - "3/3" or "2/3". The full explanation ("source
+        # states ~100%/~66% probability") lives ONCE in this scan's
+        # top-level "note" field (see run_three_movements_scan's return),
+        # not repeated per window. With events that qualify over a large
+        # fraction of the day, a scan can return hundreds of windows -
+        # spelling the same sentence out in every one of them was pure
+        # duplicate payload (confirmed: ~12% of a real movements_scan
+        # section's bytes were this one field, carrying zero information
+        # beyond what "movements_hit" already gives as an int).
+        window["concordance"] = "3/3" if movements == 3 else "2/3"
     # Pass through whichever per-condition boolean fields this caller's
     # entries actually carry (Grishchenyuk's 3 movements, Timoshenko's 4
     # conditions, or any future criterion) rather than assuming one fixed

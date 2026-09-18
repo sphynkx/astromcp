@@ -245,20 +245,89 @@ def _run_lunar_return_for_event(natal, n_raw, n_points, ev):
 _ANGULAR_POINT_NAMES = set(ANGLE_KEYS + HOUSE_KEYS)
 
 
-def _extract_angular_aspects(aspects, max_orb=1.0):
-    """Filter aspects where at least one side is an angle/cusp, within max_orb."""
+def _event_relevant_points(n_raw, ev):
+    """
+    The set of point names that legitimately matter for THIS event, per
+    the same "elements of house" reasoning (see engine/houses.py and
+    help_texts/rectification.md "Reasoning about which houses apply to an
+    event") that run_three_movements_scan already uses for movements_scan:
+    the event's own target_houses cusps themselves, their ruler/co-ruler/
+    occupying planets (via get_house_element_names - the exact function
+    movements_scan calls, previously imported here but never wired up to
+    candidate_verification), plus the four angles (ASC/DSC/MC/IC), which
+    are always legitimate rectification significators on their own.
+
+    Falls back to ALL 12 house cusps + the 4 angles when an event carries
+    no target_houses at all, so events without house reasoning aren't
+    silently dropped from candidate_verification.
+
+    Why this matters: without this restriction, "best_angular_aspect"
+    searched every one of a candidate's directed/progressed house cusps
+    and angles against every natal point, for every event, regardless of
+    which houses were actually reasoned as relevant to that specific
+    event. With 12 houses x ~14 points x the full aspect set x 4
+    techniques, that search space is wide enough that almost ANY
+    candidate time shows a sub-0.1 degree "hit" somewhere - a real,
+    observed effect (a full-day rectification run showed 9 of 11 tested
+    candidates with 6-7 of 7 personal events under 0.1 degree, which
+    doesn't discriminate between candidates at all). Restricting the
+    search to the event's own reasoned significators - the same
+    restriction movements_scan already applies - makes a "hit" mean what
+    the methodology says it should mean, and, as a side effect, sharply
+    cuts how much unused near-miss data candidate_verification returns.
+    """
+    target_houses = ev.get("target_houses")
+    relevant = set(ANGLE_KEYS)
+    if not target_houses:
+        return relevant | set(HOUSE_KEYS)
+    for h in target_houses:
+        if isinstance(h, int) and 1 <= h <= 12:
+            relevant.add(HOUSE_KEYS[h - 1])
+    relevant.update(get_house_element_names(n_raw, target_houses))
+    return relevant
+
+
+def _extract_angular_aspects(aspects, max_orb=1.0, relevant_points=None, exclude_self=None):
+    """
+    Filter aspects where at least one side is a relevant point, within
+    max_orb. relevant_points defaults to _ANGULAR_POINT_NAMES (all 12
+    house cusps + the 4 angles) for callers outside the per-event
+    candidate_verification path; pass the event-specific set from
+    _event_relevant_points to restrict the search to that event's own
+    reasoned significators instead.
+
+    exclude_self, when given a point name (e.g. "moon"), drops any aspect
+    where BOTH sides are that same point. This exists for technique="
+    lunar_return" specifically: a lunar return chart is, by its own
+    definition, the moment the transiting Moon returns to (approximately)
+    its natal degree - so a moon/moon conjunction near 0deg is structurally
+    guaranteed on every lunar return, for every candidate birth time,
+    contributing zero actual evidence about which candidate is correct.
+    Confirmed directly: without this exclusion, whenever "moon" happened
+    to be one of an event's own reasoned significators (e.g. ruler of a
+    Cancer house cusp), this trivial self-match dominated
+    best_angular_aspect for every candidate tested, silently defeating
+    the _event_relevant_points restriction above for that event. The
+    equivalent solar/sun self-match isn't excluded here because
+    technique="solar_return" is not currently invoked by
+    _process_event_for_candidate at all - only lunar_return is - but the
+    same exclusion would apply if that changes.
+    """
+    points = relevant_points if relevant_points is not None else _ANGULAR_POINT_NAMES
     result = []
     for a in aspects:
         if a["exact_orb"] > max_orb:
             continue
-        if a["point_a"] in _ANGULAR_POINT_NAMES or a["point_b"] in _ANGULAR_POINT_NAMES:
+        if exclude_self and a["point_a"] == exclude_self and a["point_b"] == exclude_self:
+            continue
+        if a["point_a"] in points or a["point_b"] in points:
             result.append(a)
     return sorted(result, key=lambda x: x["exact_orb"])
 
 
-def _best_angular_aspect(aspects):
-    """Return the single tightest angular aspect, or None."""
-    angular = _extract_angular_aspects(aspects, max_orb=2.0)
+def _best_angular_aspect(aspects, relevant_points=None, exclude_self=None):
+    """Return the single tightest relevant aspect, or None."""
+    angular = _extract_angular_aspects(aspects, max_orb=2.0, relevant_points=relevant_points, exclude_self=exclude_self)
     return angular[0] if angular else None
 
 
@@ -273,16 +342,17 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
     """
     results = {}
     precision = ev.get("precision", "date")  # "datetime", "date", "month", "year"
+    relevant_points = _event_relevant_points(n_raw, ev)
 
     # Solar arc — runs for every precision level, year-only included
     # (see _run_solar_arc_for_event's own comment)
     try:
         sa = _run_solar_arc_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev)
-        best = _best_angular_aspect(sa["aspects"])
+        best = _best_angular_aspect(sa["aspects"], relevant_points)
         results["solar_arc"] = {
             "best_angular_aspect": best,
             "total_aspects": len(sa["aspects"]),
-            "angular_aspects_under_1deg": len(_extract_angular_aspects(sa["aspects"], 1.0)),
+            "angular_aspects_under_1deg": len(_extract_angular_aspects(sa["aspects"], 1.0, relevant_points)),
             "meta": sa["meta"],
         }
     except _EventTooImprecise as e:
@@ -293,11 +363,11 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
     # Secondary progression — runs for every precision level, year-only included
     try:
         sp = _run_secondary_progression_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev)
-        best = _best_angular_aspect(sp["aspects"])
+        best = _best_angular_aspect(sp["aspects"], relevant_points)
         results["secondary_progression"] = {
             "best_angular_aspect": best,
             "total_aspects": len(sp["aspects"]),
-            "angular_aspects_under_1deg": len(_extract_angular_aspects(sp["aspects"], 1.0)),
+            "angular_aspects_under_1deg": len(_extract_angular_aspects(sp["aspects"], 1.0, relevant_points)),
         }
     except _EventTooImprecise as e:
         results["secondary_progression"] = {"error": str(e)}
@@ -308,11 +378,11 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
     if precision == "datetime":
         try:
             tr = _run_transit_for_event(natal, n_raw, n_points, ev)
-            best = _best_angular_aspect(tr["aspects"])
+            best = _best_angular_aspect(tr["aspects"], relevant_points)
             results["transit"] = {
                 "best_angular_aspect": best,
                 "total_aspects": len(tr["aspects"]),
-                "angular_aspects_under_1deg": len(_extract_angular_aspects(tr["aspects"], 1.0)),
+                "angular_aspects_under_1deg": len(_extract_angular_aspects(tr["aspects"], 1.0, relevant_points)),
             }
         except Exception as e:
             results["transit"] = {"error": str(e)}
@@ -323,7 +393,7 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
     # event without a known clock time, not just date-precision ones)
     try:
         pf = _run_profection_for_event(natal, n_raw, n_points, ev)
-        best = _best_angular_aspect(pf["aspects"])
+        best = _best_angular_aspect(pf["aspects"], relevant_points)
         results["profection"] = {
             "best_angular_aspect": best,
             "total_aspects": len(pf["aspects"]),
@@ -331,10 +401,13 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
     except Exception as e:
         results["profection"] = {"error": str(e)}
 
-    # Lunar return — same reasoning as profection above
+    # Lunar return — same reasoning as profection above. exclude_self=
+    # "moon": see _extract_angular_aspects' docstring - a lunar return's
+    # own defining feature (transiting Moon = natal Moon) is not evidence
+    # about the candidate birth time and must not be allowed to win here.
     try:
         lr = _run_lunar_return_for_event(natal, n_raw, n_points, ev)
-        best = _best_angular_aspect(lr["aspects"])
+        best = _best_angular_aspect(lr["aspects"], relevant_points, exclude_self="moon")
         results["lunar_return"] = {
             "best_angular_aspect": best,
             "total_aspects": len(lr["aspects"]),
@@ -344,6 +417,133 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
         results["lunar_return"] = {"error": str(e)}
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Compact digest of candidate_verification
+# ---------------------------------------------------------------------------
+
+_TECHNIQUES_ORDER = ("solar_arc", "secondary_progression", "profection", "lunar_return", "transit")
+
+
+def _best_of_event(techs):
+    """
+    Across the (up to 5) technique results stored for one event at one
+    candidate, return {orb_deg, technique, point_a, point_b, aspect_deg}
+    for whichever technique produced the single tightest
+    best_angular_aspect, or None if none of them produced one.
+    """
+    best = None
+    best_tech = None
+    for tech in _TECHNIQUES_ORDER:
+        t = techs.get(tech)
+        if not t:
+            continue
+        baa = t.get("best_angular_aspect")
+        if baa is None or baa.get("exact_orb") is None:
+            continue
+        if best is None or baa["exact_orb"] < best["exact_orb"]:
+            best = baa
+            best_tech = tech
+    if best is None:
+        return None
+    return {
+        "orb_deg": round(best["exact_orb"], 4),
+        "technique": best_tech,
+        "point_a": best["point_a"],
+        "point_b": best["point_b"],
+        "aspect_deg": best["aspect_deg"],
+    }
+
+
+def _build_digest(verification, events):
+    """
+    A compact, candidate-by-candidate summary of `candidate_verification`,
+    built for the common case where a caller wants to see which
+    candidates are actually worth pulling the full (large) per-technique
+    detail for, without first downloading that full detail.
+
+    For each candidate: per-event best orb for PERSONAL events only (per
+    help_texts/rectification.md "Personal events take priority" - these
+    are the events worth showing in full here), plus sub-0.1/sub-0.5
+    degree counts for both personal and career/minor events.
+
+    This is explicitly NOT a ranking. Candidates are listed in the same
+    order candidate_verification itself returned them (whatever order
+    _build_candidate_list produced - never resorted by any count here).
+    The sub-0.1/sub-0.5 counts are a direct tally of a real, documented
+    quantity (orb tightness against each event's own reasoned
+    significators, after the _event_relevant_points restriction above) -
+    not an invented combined score - but per the project's standing rule
+    against inventing scoring/ranking schemes, this digest does not sum
+    those counts across candidates into a single number, and does not
+    order or flag any candidate as a "winner". Use it alongside
+    movements_intersection and the auxiliary checks, per the mandatory
+    sequence, to reach a conclusion - not as a replacement for them.
+    """
+    events_by_name = {e["name"]: e for e in events}
+    personal_names = [n for n, e in events_by_name.items() if e.get("category") == "personal"]
+    other_names = [n for n, e in events_by_name.items() if e.get("category") != "personal"]
+
+    candidates = []
+    for cand_label, per_event in verification.items():
+        personal_events_out = []
+        personal_sub01 = personal_sub05 = 0
+        other_sub01 = other_sub05 = 0
+
+        for name in personal_names:
+            techs = per_event.get(name, {})
+            b = _best_of_event(techs)
+            if b is not None:
+                personal_events_out.append({"name": name, **b})
+                if b["orb_deg"] < 0.1:
+                    personal_sub01 += 1
+                if b["orb_deg"] < 0.5:
+                    personal_sub05 += 1
+
+        for name in other_names:
+            techs = per_event.get(name, {})
+            b = _best_of_event(techs)
+            if b is not None:
+                if b["orb_deg"] < 0.1:
+                    other_sub01 += 1
+                if b["orb_deg"] < 0.5:
+                    other_sub05 += 1
+
+        candidates.append({
+            "time": cand_label,
+            "personal_events_total": len(personal_names),
+            "personal_sub_0.1deg": personal_sub01,
+            "personal_sub_0.5deg": personal_sub05,
+            "career_minor_events_total": len(other_names),
+            "career_minor_sub_0.1deg": other_sub01,
+            "career_minor_sub_0.5deg": other_sub05,
+            "personal_events": personal_events_out,
+        })
+
+    return {
+        "method": "candidate_verification_digest",
+        "note": (
+            "Compact summary of candidate_verification: for each candidate, "
+            "the single tightest angular aspect per PERSONAL event (career/"
+            "minor events are reduced to counts only, to keep this section "
+            "small - fetch the full candidate_verification section, "
+            "optionally with the REST endpoints for large results, for "
+            "their detail). Best-aspect search is restricted to each "
+            "event's own reasoned target_houses elements plus the four "
+            "angles (see _event_relevant_points) - not all 12 houses - so "
+            "these numbers should discriminate between candidates rather "
+            "than being tight for almost all of them. This is NOT a "
+            "ranking: candidates are listed in candidate_verification's own "
+            "order, and the sub_0.1/sub_0.5 counts are a direct tally of a "
+            "real measured quantity, never summed into one combined score "
+            "or used here to pick a 'winner' - see help_texts/"
+            "rectification.md's no-scoring rule and 'Personal events take "
+            "priority'. Use alongside movements_intersection and the "
+            "auxiliary checks, per the mandatory sequence."
+        ),
+        "candidates": candidates,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -390,10 +590,25 @@ def run_rectification_pipeline(
 
     Returns a dict with:
       - trutina: Trutina Hermetis results
-      - movements_scan: per-event qualifying windows
+      - movements_scan: per-event qualifying windows (large - usually not
+        needed directly, since movements_intersection already carries its
+        per-event selectivity ratios and movements_coverage_heatmap
+        already carries the ranked overlap; fetch this only for a
+        detailed per-event audit)
       - movements_intersection: intersection of all events' windows
-      - candidate_verification: per-candidate × per-event solar_arc results
       - auxiliary: Bonatti, Herich, degree_clustering results
+      - movements_coverage_heatmap: ranked overlap across events
+      - candidate_selection_tier: which tier produced the verified
+        candidate list (explicit_candidates, initial_guess_vicinity,
+        strict/relaxed intersection, ...)
+      - candidate_verification: full per-candidate x per-event x
+        per-technique detail (large - see "digest" below for a compact
+        summary of the same data; fetch this section, or a REST call for
+        one candidate, only once specific candidates need closer study)
+      - digest: compact per-candidate summary of candidate_verification -
+        RECOMMENDED as the first thing to fetch after
+        movements_intersection, before reaching for the full
+        candidate_verification section
       - summary: counts and completeness check
       - elapsed_seconds: total computation time
     """
@@ -607,6 +822,7 @@ def run_rectification_pipeline(
         logger.info("  verified candidate %s against %d events", cand_label, len(events))
 
     result["candidate_verification"] = verification
+    result["digest"] = _build_digest(verification, events)
 
 
     # -----------------------------------------------------------------------

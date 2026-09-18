@@ -779,7 +779,15 @@ something was checked. Specifically:
    the explicitly-provided candidate_times and the top intersection
    survivors. For each candidate, state the count of sub-0.1° and sub-0.5°
    angular aspects on personal events specifically (personal events take
-   priority — see the rule above).
+   priority — see the rule above). The `digest` section already has
+   exactly this table precomputed (per-candidate, per-personal-event best
+   orb, plus the sub-0.1°/sub-0.5° counts) — read `digest` first and build
+   this table from it directly; only fall back to reconstructing it by
+   hand from the full `candidate_verification` section if `digest` is
+   somehow unavailable (an older job, predating this section) or a
+   specific cell's full per-technique detail (total_aspects, meta) is
+   genuinely needed beyond the single best aspect `digest` already
+   surfaces.
 
 8. **Conflict analysis** — if different methods or event categories
    point to different time ranges, state this explicitly: what points
@@ -824,11 +832,41 @@ something was checked. Specifically:
 
 **Output structure:**
   - `trutina` — four-branch Trutina Hermetis result
-  - `movements_scan` — per-event qualifying windows
-  - `movements_intersection` — strict (3/3) and relaxed (2/3) time sets
+  - `movements_scan` — per-event qualifying windows (large; see "Read the
+    smallest section that answers the question" below — usually
+    `movements_intersection` alone is enough)
+  - `movements_intersection` — strict (3/3) and relaxed (2/3) time sets,
+    PLUS per-event selectivity (qualifying/tested/ratio) for every event
+    in one place
   - `auxiliary` — Bonatti, Herich, degree_clustering results
-  - `candidate_verification` — per-candidate × per-event technique matrix
-    with best angular aspects and orbs
+  - `movements_coverage_heatmap` — ranked overlap across events at the
+    relaxed (>=2/3) level, for when the strict/relaxed intersection above
+    is empty or too narrow to be useful on its own
+  - `candidate_selection_tier` — which tier produced the candidates that
+    got verified (explicit_candidates, initial_guess_vicinity, strict/
+    relaxed intersection, most-corroborated-individual-events, or
+    scan-range-midpoint as an absolute last resort) — read this before
+    trusting `candidate_verification`'s candidate list as evidentially
+    meaningful; a low tier (the last two) means the candidates being
+    verified are a weak fallback, not a real convergence
+  - `candidate_verification` — full per-candidate × per-event × per-
+    technique matrix with best angular aspects and orbs (large; see
+    `digest` for a compact summary of the same data)
+  - `digest` — compact per-candidate summary of `candidate_verification`:
+    for each candidate, the single tightest angular aspect per PERSONAL
+    event (career/minor events reduced to sub-0.1°/sub-0.5° counts only).
+    Read THIS before the full `candidate_verification` section — it is
+    usually all that's needed to see whether a candidate is worth
+    studying further in full detail. Its best-aspect search is already
+    restricted to each event's own reasoned `target_houses` elements (see
+    "Reasoning about which houses apply to an event" above) plus the four
+    angles, not all 12 houses — so, unlike an unrestricted search, these
+    numbers should actually discriminate between candidates. This is NOT
+    a ranking (see "Absolute rule: never invent a scoring or weighting
+    scheme") — it is a same-order restatement of `candidate_verification`
+    with the low-value nested detail (total_aspects, angular_aspects_
+    under_1deg, per-technique meta) removed and non-personal events
+    collapsed to counts.
   - `summary` — event counts, cell counts, completeness
 
 Also available as a REST endpoint: `POST /astro/rectify` with the same
@@ -839,16 +877,49 @@ JSON body.
 **Always use `rectif_pipeline_start` + `rectif_pipeline_result`** for
 pipeline runs — a 71-event run takes ~5-30 minutes.
 
+### Read the smallest section that answers the question
+
+`movements_scan` and `candidate_verification` are, by a wide margin, the
+two largest sections a pipeline run returns — `movements_scan` in
+particular can be the single largest part of the whole result, since a
+loosely-orbed event can return well over a hundred qualifying_windows
+entries. Both exist for genuine audit purposes (checking one event's raw
+windows, or one candidate's full per-technique breakdown), not because
+they need to be read on every run. Before fetching either, check whether
+the smaller, already-computed sections already answer the question:
+
+  - `movements_intersection` already carries every event's selectivity
+    ratio (`per_event_selectivity`) AND the strict/relaxed intersection —
+    this is what `movements_scan`'s per-event window lists exist to
+    produce; reading the intersection directly skips reconstructing it
+    from scratch.
+  - `movements_coverage_heatmap` already carries the ranked overlap when
+    the intersection is empty or too narrow.
+  - `digest` already carries a candidate-by-candidate summary of
+    `candidate_verification`, restricted to each event's own reasoned
+    significators.
+
+Fetch `movements_scan` or the full `candidate_verification` only when one
+of these smaller sections leaves something genuinely unresolved (e.g. you
+need one event's exact window boundaries, or one candidate's full
+per-technique meta for the final report's technique matrix) — not as a
+default first move. This matters beyond tidiness: pulling a multi-hundred-
+KB section into context (or having it silently redirected to a file, then
+written back out again as printed analysis) is real, avoidable cost on
+every single rectification session, and it scales with event count, so it
+matters most exactly when it's most tempting to skip this step.
+
 ### Sectioned retrieval via MCP
 
 `rectif_pipeline_result` supports a `section=` parameter:
 
-    rectif_pipeline_result(job_id)                              → status + available_sections
-    rectif_pipeline_result(job_id, section="trutina")           → Trutina
-    rectif_pipeline_result(job_id, section="movements_scan")    → per-event windows
-    rectif_pipeline_result(job_id, section="auxiliary")          → Bonatti/Herich/clustering
-    rectif_pipeline_result(job_id, section="movements_intersection") → intersection
-    rectif_pipeline_result(job_id, section="candidate_verification") → technique matrix
+    rectif_pipeline_result(job_id)                                  → status + available_sections
+    rectif_pipeline_result(job_id, section="trutina")               → Trutina
+    rectif_pipeline_result(job_id, section="movements_intersection") → intersection + selectivity
+    rectif_pipeline_result(job_id, section="auxiliary")              → Bonatti/Herich/clustering
+    rectif_pipeline_result(job_id, section="digest")                 → compact candidate summary
+    rectif_pipeline_result(job_id, section="candidate_verification") → full technique matrix
+    rectif_pipeline_result(job_id, section="movements_scan")        → per-event raw windows
 
 If a section exceeds MCP's 1 MB limit (candidate_verification with 70+
 events typically does), fetch via REST instead — see below.

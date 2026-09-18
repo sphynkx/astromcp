@@ -1132,21 +1132,46 @@ def rectif_pipeline_result(job_id: str, section: Optional[str] = None) -> Dict[s
 
     Valid section names (when job is done):
       trutina, movements_scan, movements_intersection, auxiliary,
+      movements_coverage_heatmap, candidate_selection_tier, digest,
       candidate_verification, summary, elapsed_seconds, natal,
       scan_range, events_count, fixed_offset_minutes
 
-    Typical workflow:
-      1. rectif_pipeline_result(job_id)                    → status + sections list
-      2. rectif_pipeline_result(job_id, "trutina")         → Trutina data
-      3. rectif_pipeline_result(job_id, "movements_scan")  → per-event windows
-      4. rectif_pipeline_result(job_id, "auxiliary")        → Bonatti/Herich/clustering
-      ...etc.
+    RECOMMENDED workflow — read the smallest sections first, and only
+    reach for the larger ones if the smaller ones leave something
+    genuinely unresolved. Do not fetch every section unconditionally on
+    every run; each one is a separate, real cost, and several of them
+    overlap in what they tell you:
+      1. rectif_pipeline_result(job_id)                        → status + sections list, cheap
+      2. rectif_pipeline_result(job_id, "trutina")              → Trutina data, small
+      3. rectif_pipeline_result(job_id, "movements_intersection") → strict/relaxed intersection
+                                                                     AND per-event selectivity
+                                                                     ratios in one call — usually
+                                                                     enough on its own, without 2
+      4. rectif_pipeline_result(job_id, "auxiliary")            → Bonatti/Herich/clustering
+      5. rectif_pipeline_result(job_id, "digest")               → compact per-candidate summary
+                                                                     of candidate_verification —
+                                                                     fetch THIS before the full
+                                                                     candidate_verification section
+      6. rectif_pipeline_result(job_id, "candidate_verification") → full per-technique detail —
+                                                                     usually only worth fetching
+                                                                     for the specific candidate(s)
+                                                                     the digest or intersection
+                                                                     narrowed to, not by default
+      7. rectif_pipeline_result(job_id, "movements_scan")       → full per-event raw windows —
+                                                                     rarely needed: movements_
+                                                                     intersection (step 3) and
+                                                                     movements_coverage_heatmap
+                                                                     already summarize this;
+                                                                     fetch it only for a detailed
+                                                                     per-event audit
 
     If a section is too large even alone (>1 MB, e.g. candidate_verification
     with 70+ events), fetch it via REST streaming instead:
       curl https://HOST/astro/jobs/<id>/stream > result.ndjson
     or fetch the full result as one file:
       curl https://HOST/astro/jobs/<id> > result.json
+    or one section only:
+      curl https://HOST/astro/jobs/<id>/digest > digest.json
     """
     if section:
         return get_job_section(job_id, section)
