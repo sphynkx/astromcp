@@ -466,7 +466,14 @@ def _build_digest(verification, events):
     For each candidate: per-event best orb for PERSONAL events only (per
     help_texts/rectification.md "Personal events take priority" - these
     are the events worth showing in full here), plus sub-0.1/sub-0.5
-    degree counts for both personal and career/minor events.
+    degree counts for both personal and career/minor events, and the
+    candidate's own "tier"/"corroborating_events" (see
+    _build_candidate_list) - always check this before reading a high
+    sub_0.1deg count as independent confirmation: a candidate tagged
+    "initial_guess_vicinity" was tested only because it sits near the
+    supplied seed time, not because any data pointed there, so a tight
+    score there is not on the same footing as one from
+    "strict_3of3_intersection" or "most_corroborated_individual_events".
 
     This is explicitly NOT a ranking. Candidates are listed in the same
     order candidate_verification itself returned them (whatever order
@@ -512,6 +519,8 @@ def _build_digest(verification, events):
 
         candidates.append({
             "time": cand_label,
+            "tier": per_event.get("_tier"),
+            "corroborating_events": per_event.get("_corroborating_events"),
             "personal_events_total": len(personal_names),
             "personal_sub_0.1deg": personal_sub01,
             "personal_sub_0.5deg": personal_sub05,
@@ -533,14 +542,23 @@ def _build_digest(verification, events):
             "event's own reasoned target_houses elements plus the four "
             "angles (see _event_relevant_points) - not all 12 houses - so "
             "these numbers should discriminate between candidates rather "
-            "than being tight for almost all of them. This is NOT a "
-            "ranking: candidates are listed in candidate_verification's own "
-            "order, and the sub_0.1/sub_0.5 counts are a direct tally of a "
-            "real measured quantity, never summed into one combined score "
-            "or used here to pick a 'winner' - see help_texts/"
-            "rectification.md's no-scoring rule and 'Personal events take "
-            "priority'. Use alongside movements_intersection and the "
-            "auxiliary checks, per the mandatory sequence."
+            "than being tight for almost all of them. Each candidate also "
+            "carries its own 'tier' (see candidate_selection_tiers / "
+            "_build_candidate_list) - a run often verifies candidates from "
+            "more than one tier at once (e.g. the always-included "
+            "initial_guess_vicinity plus a movements-derived fallback), so "
+            "a tight score is independent confirmation only when its tier "
+            "is data-driven (strict/relaxed intersection or "
+            "most_corroborated_individual_events) - a seed-anchored "
+            "initial_guess_vicinity candidate was tested BECAUSE it's near "
+            "the supplied guess, not because anything pointed there. This "
+            "is NOT a ranking: candidates are listed in candidate_"
+            "verification's own order, and the sub_0.1/sub_0.5 counts are "
+            "a direct tally of a real measured quantity, never summed into "
+            "one combined score or used here to pick a 'winner' - see "
+            "help_texts/rectification.md's no-scoring rule and 'Personal "
+            "events take priority'. Use alongside movements_intersection "
+            "and the auxiliary checks, per the mandatory sequence."
         ),
         "candidates": candidates,
     }
@@ -598,17 +616,28 @@ def run_rectification_pipeline(
       - movements_intersection: intersection of all events' windows
       - auxiliary: Bonatti, Herich, degree_clustering results
       - movements_coverage_heatmap: ranked overlap across events
-      - candidate_selection_tier: which tier produced the verified
-        candidate list (explicit_candidates, initial_guess_vicinity,
-        strict/relaxed intersection, ...)
+      - candidate_selection_tier: name of the FIRST tier that
+        contributed a candidate (explicit_candidates,
+        initial_guess_vicinity, strict/relaxed intersection, ...) -
+        kept for back-compat; see candidate_selection_tiers for the
+        full picture, since a run often blends more than one tier
+      - candidate_selection_tiers: {tier_name: count} breakdown of the
+        WHOLE candidate list - a run frequently draws candidates from
+        more than one tier at once (e.g. the always-included
+        initial_guess vicinity plus a movements-derived fallback when
+        the intersection is empty), which the single
+        candidate_selection_tier name alone hides
       - candidate_verification: full per-candidate x per-event x
         per-technique detail (large - see "digest" below for a compact
         summary of the same data; fetch this section, or a REST call for
-        one candidate, only once specific candidates need closer study)
-      - digest: compact per-candidate summary of candidate_verification -
-        RECOMMENDED as the first thing to fetch after
-        movements_intersection, before reaching for the full
-        candidate_verification section
+        one candidate, only once specific candidates need closer study).
+        Each candidate's entry also carries "_tier" (and
+        "_corroborating_events" when applicable) identifying which tier
+        that specific candidate came from
+      - digest: compact per-candidate summary of candidate_verification,
+        including each candidate's own tier - RECOMMENDED as the first
+        thing to fetch after movements_intersection, before reaching for
+        the full candidate_verification section
       - summary: counts and completeness check
       - elapsed_seconds: total computation time
     """
@@ -793,16 +822,29 @@ def run_rectification_pipeline(
     #   C. Movements intersection peaks
     #   D. Most-corroborated-individual-events (fallback)
     #   E. Scan range midpoint (last resort)
-    cands, candidate_fallback_tier = _build_candidate_list(
+    cands, candidate_tier_counts = _build_candidate_list(
         candidate_times, intersection, movements_results, step_minutes * 60,
         scan_start_hour, scan_start_minute, scan_end_hour, scan_end_minute,
         initial_guess_hour=initial_guess_hour,
         initial_guess_minute=initial_guess_minute,
     )
-    result["candidate_selection_tier"] = candidate_fallback_tier
+    # Back-compat: candidate_selection_tier stays the single tier name of
+    # the FIRST tier that contributed any candidate (previous behaviour),
+    # for any existing consumer that expects a bare string. It is NOT a
+    # summary of the whole candidate list - see candidate_selection_tiers
+    # and each candidate's own "tier" field (echoed into
+    # candidate_verification and digest below) for that, since a run
+    # frequently blends candidates from more than one tier at once (e.g.
+    # the always-included initial_guess vicinity plus a data-driven
+    # fallback when the intersection came back empty) and collapsing
+    # that mix into one name made every candidate look equally
+    # seed-anchored or equally data-driven, whichever fired first.
+    first_tier = next(iter(candidate_tier_counts), None)
+    result["candidate_selection_tier"] = first_tier
+    result["candidate_selection_tiers"] = candidate_tier_counts
     logger.info(
-        "pipeline: verifying %d candidate times against all events (selection tier: %s)...",
-        len(cands), candidate_fallback_tier,
+        "pipeline: verifying %d candidate times against all events (tiers: %s)...",
+        len(cands), candidate_tier_counts,
     )
 
     verification = {}
@@ -818,8 +860,20 @@ def run_rectification_pipeline(
                 natal, fixed_offset, n_raw, n_points, ch, cm, cs, ev
             )
 
+        # "_tier"/"_corroborating_events" are metadata about the candidate
+        # itself, not another event - underscore-prefixed so they can't
+        # collide with an event named e.g. "tier" and so downstream code
+        # can distinguish them from per_event keys by a simple prefix
+        # check rather than a hardcoded key list. _build_digest below
+        # only ever looks up specific event names via events_by_name, so
+        # it's unaffected by these extra keys; the summary loop further
+        # down explicitly skips them.
+        per_event["_tier"] = cand.get("tier")
+        if "corroborating_events" in cand:
+            per_event["_corroborating_events"] = cand["corroborating_events"]
+
         verification[cand_label] = per_event
-        logger.info("  verified candidate %s against %d events", cand_label, len(events))
+        logger.info("  verified candidate %s against %d events (tier: %s)", cand_label, len(events), cand.get("tier"))
 
     result["candidate_verification"] = verification
     result["digest"] = _build_digest(verification, events)
@@ -832,6 +886,11 @@ def run_rectification_pipeline(
     filled_cells = 0
     for cand_label, per_event in verification.items():
         for ev_name, techs in per_event.items():
+            # "_tier"/"_corroborating_events" are per-candidate metadata
+            # (see where they're set above), not an event -> technique-dict
+            # entry, so they don't have .items() to iterate; skip them.
+            if ev_name.startswith("_"):
+                continue
             for tech_name, tech_result in techs.items():
                 total_cells += 1
                 if "error" not in tech_result:
@@ -1062,16 +1121,41 @@ def _build_candidate_list(
 
     Movements-derived candidates are ALSO included so both zones get a
     head-to-head comparison in a single pipeline run.
+
+    Each returned candidate dict carries its own "tier" field recording
+    which tier first contributed it (tiers are applied in priority order
+    A-F and a candidate keeps whichever tier added it first, via
+    _cand_in_list dedup). This matters because a single run routinely
+    draws from MORE THAN ONE tier at once - e.g. the always-included
+    initial_guess vicinity (tier B) plus a data-driven fallback (tier E)
+    when the intersection is empty. Reporting only the first tier that
+    fired as one flat string (the previous behaviour) hid that mix: a
+    human/LLM reading the result would see e.g. "initial_guess_vicinity"
+    and reasonably assume EVERY candidate was seed-anchored, when some
+    were actually independent, data-driven fallback candidates - or
+    vice versa, wrongly trust a seed-anchored candidate as if it were
+    data-driven. The second return value is now a {tier: count} tally
+    of the whole list, not a single tier name, so the mix is visible;
+    the per-candidate "tier" tag is the authoritative source and is
+    threaded into candidate_verification and digest below, rather than
+    re-derived from candidate order.
     """
     cands = []
-    fallback_tier = None
+    tier_counts: Dict[str, int] = {}
+
+    def _add(c, tier):
+        if _cand_in_list(c, cands):
+            return
+        tagged = {"hour": c["hour"], "minute": c["minute"], "second": c.get("second", 0), "tier": tier}
+        if "corroborating_events" in c:
+            tagged["corroborating_events"] = c["corroborating_events"]
+        cands.append(tagged)
+        tier_counts[tier] = tier_counts.get(tier, 0) + 1
 
     # ----- A. Explicitly provided candidate_times (from the caller) --------
     if explicit_candidates:
         for c in explicit_candidates:
-            cands.append({"hour": c["hour"], "minute": c["minute"], "second": c.get("second", 0)})
-        if cands:
-            fallback_tier = "explicit_candidates"
+            _add(c, "explicit_candidates")
 
     # ----- B. Initial-guess vicinity (ALWAYS included when provided) -------
     #   Verifies stated/documented time ±15 min so the human always sees
@@ -1083,34 +1167,29 @@ def _build_candidate_list(
             if sec < 0:
                 sec += 86400
             sec = sec % 86400
-            c = {"hour": sec // 3600, "minute": (sec % 3600) // 60, "second": 0}
-            if not _cand_in_list(c, cands):
-                cands.append(c)
-        fallback_tier = fallback_tier or "initial_guess_vicinity"
+            _add({"hour": sec // 3600, "minute": (sec % 3600) // 60, "second": 0}, "initial_guess_vicinity")
 
     # ----- C. From strict 3/3 intersection --------------------------------
     for time_str in intersection.get("strict_3of3_intersection", [])[:10]:
         parts = time_str.split(":")
-        c = {"hour": int(parts[0]), "minute": int(parts[1]), "second": int(parts[2]) if len(parts) > 2 else 0}
-        if not _cand_in_list(c, cands):
-            cands.append(c)
-            fallback_tier = fallback_tier or "strict_3of3_intersection"
+        _add(
+            {"hour": int(parts[0]), "minute": int(parts[1]), "second": int(parts[2]) if len(parts) > 2 else 0},
+            "strict_3of3_intersection",
+        )
 
     # ----- D. From relaxed 2/3 intersection (if strict empty) -------------
     if not intersection.get("strict_3of3_intersection"):
         for time_str in intersection.get("relaxed_2of3_intersection", [])[:10]:
             parts = time_str.split(":")
-            c = {"hour": int(parts[0]), "minute": int(parts[1]), "second": int(parts[2]) if len(parts) > 2 else 0}
-            if not _cand_in_list(c, cands):
-                cands.append(c)
-                fallback_tier = fallback_tier or "relaxed_2of3_intersection"
+            _add(
+                {"hour": int(parts[0]), "minute": int(parts[1]), "second": int(parts[2]) if len(parts) > 2 else 0},
+                "relaxed_2of3_intersection",
+            )
 
     # ----- E. Most-corroborated individual events fallback ----------------
     if len(cands) < 10:
         for c in _most_corroborated_candidates(movements_results, step_seconds):
-            if not _cand_in_list(c, cands):
-                cands.append(c)
-                fallback_tier = fallback_tier or "most_corroborated_individual_events"
+            _add(c, "most_corroborated_individual_events")
             if len(cands) >= 20:
                 break
 
@@ -1118,10 +1197,9 @@ def _build_candidate_list(
     if not cands:
         mid_h = (start_h + end_h) // 2
         mid_m = (start_m + end_m) // 2
-        cands.append({"hour": mid_h, "minute": mid_m, "second": 0})
-        fallback_tier = "scan_range_midpoint_no_signal"
+        _add({"hour": mid_h, "minute": mid_m, "second": 0}, "scan_range_midpoint_no_signal")
 
-    return cands, fallback_tier
+    return cands, tier_counts
 
 
 def _cand_in_list(c, cands):

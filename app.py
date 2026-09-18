@@ -29,7 +29,7 @@ from engine import photo_fetch
 from engine.geocode import GeocodeError
 from engine.pipeline import run_rectification_pipeline
 from engine.jobs import (submit_job, get_job, get_job_status, get_job_section,
-                         iter_job_sections, list_jobs)
+                         iter_job_sections, list_jobs, delete_job)
 
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL, logging.INFO))
 logger = logging.getLogger("astromcp")
@@ -1132,9 +1132,25 @@ def rectif_pipeline_result(job_id: str, section: Optional[str] = None) -> Dict[s
 
     Valid section names (when job is done):
       trutina, movements_scan, movements_intersection, auxiliary,
-      movements_coverage_heatmap, candidate_selection_tier, digest,
-      candidate_verification, summary, elapsed_seconds, natal,
-      scan_range, events_count, fixed_offset_minutes
+      movements_coverage_heatmap, candidate_selection_tier,
+      candidate_selection_tiers, digest, candidate_verification,
+      summary, elapsed_seconds, natal, scan_range, events_count,
+      fixed_offset_minutes
+
+    candidate_selection_tier is the single tier name that FIRST
+    contributed a candidate (kept for back-compat); candidate_selection_
+    tiers is a {tier_name: count} breakdown of the WHOLE candidate list,
+    which is often a mix of more than one tier in the same run (e.g. the
+    always-included initial_guess vicinity plus a movements-derived
+    fallback when the intersection was empty) - check this, not just the
+    single-tier field, before treating digest/candidate_verification
+    scores as independent confirmation. Each candidate inside digest and
+    candidate_verification also carries its own tier directly (digest:
+    "tier" key; candidate_verification: "_tier" key on that candidate's
+    entry) - a tight score under a seed-anchored "initial_guess_vicinity"
+    tier was tested BECAUSE it's near the supplied guess, not because any
+    data pointed there, and isn't on the same footing as one from
+    "strict_3of3_intersection" or "most_corroborated_individual_events".
 
     RECOMMENDED workflow — read the smallest sections first, and only
     reach for the larger ones if the smaller ones leave something
@@ -1148,16 +1164,19 @@ def rectif_pipeline_result(job_id: str, section: Optional[str] = None) -> Dict[s
                                                                      ratios in one call — usually
                                                                      enough on its own, without 2
       4. rectif_pipeline_result(job_id, "auxiliary")            → Bonatti/Herich/clustering
-      5. rectif_pipeline_result(job_id, "digest")               → compact per-candidate summary
+      5. rectif_pipeline_result(job_id, "candidate_selection_tiers") → tier mix of the run, cheap —
+                                                                     read before trusting digest's
+                                                                     scores as independent evidence
+      6. rectif_pipeline_result(job_id, "digest")               → compact per-candidate summary
                                                                      of candidate_verification —
                                                                      fetch THIS before the full
                                                                      candidate_verification section
-      6. rectif_pipeline_result(job_id, "candidate_verification") → full per-technique detail —
+      7. rectif_pipeline_result(job_id, "candidate_verification") → full per-technique detail —
                                                                      usually only worth fetching
                                                                      for the specific candidate(s)
                                                                      the digest or intersection
                                                                      narrowed to, not by default
-      7. rectif_pipeline_result(job_id, "movements_scan")       → full per-event raw windows —
+      8. rectif_pipeline_result(job_id, "movements_scan")       → full per-event raw windows —
                                                                      rarely needed: movements_
                                                                      intersection (step 3) and
                                                                      movements_coverage_heatmap
@@ -1229,6 +1248,22 @@ async def astro_jobs_stream(request: Request) -> StreamingResponse:
         media_type="application/x-ndjson",
         headers={"X-Job-Id": job_id},
     )
+
+
+@mcp.custom_route("/astro/jobs/{job_id}/delete", methods=["GET", "DELETE"])
+async def astro_jobs_delete(request: Request) -> JSONResponse:
+    """
+    GET or DELETE /astro/jobs/<id>/delete — remove a job's stored result
+    from Redis (or the in-memory fallback), freeing the slot before its
+    3-day TTL would otherwise expire it. Registered ahead of the generic
+    "/astro/jobs/{job_id}/{section}" route below so "delete" is never
+    mistaken for a section name. Accepts plain GET (so it works with a
+    bare `curl <url>`, matching the other job endpoints here) as well as
+    the more conventional DELETE verb. Idempotent — deleting a job_id
+    that doesn't exist (or is already gone) returns {"deleted": false},
+    not an error.
+    """
+    return JSONResponse(delete_job(request.path_params["job_id"]))
 
 
 @mcp.custom_route("/astro/jobs/{job_id}/{section}", methods=["GET"])

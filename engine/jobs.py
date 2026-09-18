@@ -172,6 +172,24 @@ def iter_job_sections(job_id: str) -> Iterator[Tuple[str, Any]]:
         yield key, value
 
 
+def delete_job(job_id: str) -> Dict[str, Any]:
+    """
+    Remove a job's stored result (from Redis, or the in-memory fallback).
+
+    Idempotent: deleting a job_id that doesn't exist (or was already
+    deleted, or already expired via the 3-day TTL) returns
+    {"deleted": False} rather than raising - safe to retry or to call
+    speculatively when cleaning up a batch of job_ids.
+    """
+    existed = _load(job_id) is not None
+    if _redis is not None:
+        _redis.delete(_rkey(job_id))
+    else:
+        with _lock:
+            _memory_jobs.pop(job_id, None)
+    return {"job_id": job_id, "deleted": existed}
+
+
 def list_jobs() -> Dict[str, Any]:
     ids = _list_ids()
     jobs = []

@@ -480,6 +480,16 @@ Results are kept for 3 days. Without Redis, jobs live in memory only.
 
     curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/status
 
+**Delete a job** (frees the Redis/in-memory slot before its 3-day TTL
+would otherwise expire it; idempotent — deleting an already-gone or
+unknown job_id returns `{"deleted": false}` rather than an error):
+
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/delete
+
+Also accepts the `DELETE` HTTP verb on the same URL
+(`curl -X DELETE .../astro/jobs/<job_id>/delete`) for callers that
+prefer the conventional REST verb; both do the same thing.
+
 **Full result** (can be 10-50 MB):
 
     curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id> > result.json
@@ -488,10 +498,23 @@ Results are kept for 3 days. Without Redis, jobs live in memory only.
 
     curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/trutina
     curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/movements_scan
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/digest
     curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/candidate_verification
+    curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/candidate_selection_tiers
     curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/auxiliary
     curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/movements_intersection
     curl https://sociowiki.sphynkx.org.ua/astro/jobs/<job_id>/summary
+
+`candidate_selection_tiers` is a `{tier_name: count}` breakdown of where
+every verified candidate came from - check it before reading `digest` or
+`candidate_verification`'s scores as independent confirmation, since a
+run often blends more than one tier (e.g. the always-verified
+initial-guess vicinity plus a movements-derived fallback when the
+intersection came back empty). `candidate_selection_tier` (singular) is
+kept as the old single-string field - just the first tier that fired -
+for backward compatibility. Each candidate also carries its own tier
+directly: a `"tier"` key inside `digest`, and a `"_tier"` key on that
+candidate's entry inside `candidate_verification`.
 
 **NDJSON streaming** (one JSON line per section — universal, no size limit):
 
