@@ -106,7 +106,39 @@ def _resolve_event_date(ev, require_day=True):
 # Per-event technique runners
 # ---------------------------------------------------------------------------
 
-def _run_solar_arc_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev):
+def _uniform_orb_table(orb_deg):
+    """
+    Build a flat {aspect_degree: orb_deg} table (same orb_deg for every
+    aspect in DEFAULT_ASPECT_SET), for use in place of the module-level
+    DEFAULT_ORB_TABLE_DIRECTION / _TRANSIT tables below.
+
+    FIX: every _run_*_for_event function used to build its aspects with
+    one of the two module-level config tables, completely disconnected
+    from the direction_orb_deg / transit_orb_deg parameters the pipeline
+    already accepts and already threads into run_three_movements_scan for
+    the SAME three "movements" (progression, perfection, transit) - see
+    run_rectification_pipeline's call at the movements_scan step. So the
+    same pipeline call enforced a tight, person-chosen orb (0.5 deg
+    direction / 1.5 deg transit, by this tool's own defaults) for
+    movements_scan, while silently using a much looser, disconnected orb
+    for candidate_verification: DEFAULT_ORB_TABLE_DIRECTION is a flat 1.0
+    deg (already 2x the direction default), and - more seriously -
+    profection and lunar_return were BOTH built with
+    DEFAULT_ORB_TABLE_TRANSIT (conjunction/opposition allowed all the way
+    out to 8 deg, squares/trines to 6 deg), even though neither is an
+    actual fast-moving transit; only the transit technique itself should
+    use the transit orb. Combined with the point-matching fix above, this
+    was the other major contributor to candidate_verification returning a
+    sub-0.1 degree "hit" for essentially every candidate: 3 of the 5
+    techniques were finding aspects within an orb several times looser
+    than what the person actually asked for. All five techniques now
+    build their orb table from the same direction_orb_deg / transit_orb_deg
+    the pipeline call received, exactly as movements_scan already does.
+    """
+    return {deg: orb_deg for deg in config.DEFAULT_ASPECT_SET}
+
+
+def _run_solar_arc_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev, direction_orb_deg):
     """Solar arc direction for one event at one candidate time. Returns aspects list."""
     # require_day=False: per help_texts/rectification.md "Directions are
     # mandatory for imprecise dates, not optional" - solar arc moves
@@ -123,7 +155,7 @@ def _run_solar_arc_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw,
         ev_year, ev_month, ev_day,
     )
     asp_set = config.DEFAULT_ASPECT_SET
-    orb_tbl = config.DEFAULT_ORB_TABLE_DIRECTION
+    orb_tbl = _uniform_orb_table(direction_orb_deg)
     bonus = config.LUMINARY_ORB_BONUS_DIRECTION
     aspects = compute_aspects(computed, natal_pts, asp_set, orb_tbl, bonus, LUMINARY_NAMES)
     return {
@@ -133,7 +165,7 @@ def _run_solar_arc_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw,
     }
 
 
-def _run_secondary_progression_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev):
+def _run_secondary_progression_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev, direction_orb_deg):
     # require_day=False - see _run_solar_arc_for_event's comment above;
     # secondary progression is likewise a year-scale technique.
     ev_year, ev_month, ev_day = _resolve_event_date(ev, require_day=False)
@@ -147,7 +179,7 @@ def _run_secondary_progression_for_event(natal, cand_h, cand_m, cand_s, fixed_of
     )
     aspects = compute_aspects(
         computed, natal_pts, config.DEFAULT_ASPECT_SET,
-        config.DEFAULT_ORB_TABLE_DIRECTION, config.LUMINARY_ORB_BONUS_DIRECTION, LUMINARY_NAMES,
+        _uniform_orb_table(direction_orb_deg), config.LUMINARY_ORB_BONUS_DIRECTION, LUMINARY_NAMES,
     )
     return {
         "technique": "secondary_progression",
@@ -156,7 +188,7 @@ def _run_secondary_progression_for_event(natal, cand_h, cand_m, cand_s, fixed_of
     }
 
 
-def _run_transit_for_event(natal, n_raw, n_points, ev):
+def _run_transit_for_event(natal, n_raw, n_points, ev, transit_orb_deg):
     # event_tz_str/event_tz_offset_minutes/event_lat/event_lng are the field
     # names used everywhere else (scan.py, the technique functions, the MCP
     # tool params) - this used to read the wrong key ("tz_offset_minutes")
@@ -177,7 +209,7 @@ def _run_transit_for_event(natal, n_raw, n_points, ev):
     )
     aspects = compute_aspects(
         computed, natal_pts, config.DEFAULT_ASPECT_SET,
-        config.DEFAULT_ORB_TABLE_TRANSIT, config.LUMINARY_ORB_BONUS_TRANSIT, LUMINARY_NAMES,
+        _uniform_orb_table(transit_orb_deg), config.LUMINARY_ORB_BONUS_TRANSIT, LUMINARY_NAMES,
     )
     return {
         "technique": "transit",
@@ -186,7 +218,13 @@ def _run_transit_for_event(natal, n_raw, n_points, ev):
     }
 
 
-def _run_profection_for_event(natal, n_raw, n_points, ev):
+def _run_profection_for_event(natal, n_raw, n_points, ev, direction_orb_deg):
+    # Orb table: direction_orb_deg, not transit_orb_deg - profection is an
+    # annual time-lord technique (activation resolution on the order of a
+    # year, like solar arc/secondary progression), not an actual moving
+    # transit; using the transit table here (as this function used to)
+    # allowed orbs up to 8 deg for a technique with no fast-moving body to
+    # justify one. See _uniform_orb_table's docstring for the full context.
     ev_tz_str = ev.get("event_tz_str")
     ev_tz_off = ev.get("event_tz_offset_minutes")
     if ev_tz_str is None and ev_tz_off is None:
@@ -206,7 +244,7 @@ def _run_profection_for_event(natal, n_raw, n_points, ev):
     )
     aspects = compute_aspects(
         computed, natal_pts, config.DEFAULT_ASPECT_SET,
-        config.DEFAULT_ORB_TABLE_TRANSIT, config.LUMINARY_ORB_BONUS_TRANSIT, LUMINARY_NAMES,
+        _uniform_orb_table(direction_orb_deg), config.LUMINARY_ORB_BONUS_DIRECTION, LUMINARY_NAMES,
     )
     return {
         "technique": "profection",
@@ -215,11 +253,14 @@ def _run_profection_for_event(natal, n_raw, n_points, ev):
     }
 
 
-def _run_lunar_return_for_event(natal, n_raw, n_points, ev):
-    # require_day=False - the lunar return nearest a defaulted mid-year
-    # date is still a real, if slightly less targeted, lunar return; far
-    # better than refusing to run the technique at all for a year-only
-    # event.
+def _run_lunar_return_for_event(natal, n_raw, n_points, ev, direction_orb_deg):
+    # Orb table: direction_orb_deg - see _run_profection_for_event's
+    # comment just above; a lunar return's own timing is fixed by the
+    # Moon's actual return date, not by orb, so the orb here only governs
+    # how tightly the return-chart's angles/planets must land on the
+    # event's natal significators, which is a direction-scale judgment,
+    # not a fast-transit one. Previously used the (much looser) transit
+    # table, same bug as profection.
     ev_year, ev_month, ev_day = _resolve_event_date(ev, require_day=False)
     computed, natal_pts, meta = technique_lunar_return(
         n_raw, n_points,
@@ -229,7 +270,7 @@ def _run_lunar_return_for_event(natal, n_raw, n_points, ev):
     )
     aspects = compute_aspects(
         computed, natal_pts, config.DEFAULT_ASPECT_SET,
-        config.DEFAULT_ORB_TABLE_TRANSIT, config.LUMINARY_ORB_BONUS_TRANSIT, LUMINARY_NAMES,
+        _uniform_orb_table(direction_orb_deg), config.LUMINARY_ORB_BONUS_DIRECTION, LUMINARY_NAMES,
     )
     return {
         "technique": "lunar_return",
@@ -245,6 +286,16 @@ def _run_lunar_return_for_event(natal, n_raw, n_points, ev):
 _ANGULAR_POINT_NAMES = set(ANGLE_KEYS + HOUSE_KEYS)
 
 
+# House number -> the one ANGLE_KEYS entry that IS that house's cusp
+# (Placidus/Koch/etc. all agree on this much: house 1 = Ascendant, house 4
+# = IC, house 7 = Descendant, house 10 = MC). Used to make angle-inclusion
+# conditional on target_houses, exactly like HOUSE_KEYS inclusion already
+# is below - see the fix note in _extract_angular_aspects for why the two
+# were previously handled inconsistently (house cusps conditional, angles
+# unconditional) and why that mattered.
+_ANGLE_FOR_HOUSE = {1: "ascendant", 4: "imum_coeli", 7: "descendant", 10: "medium_coeli"}
+
+
 def _event_relevant_points(n_raw, ev):
     """
     The set of point names that legitimately matter for THIS event, per
@@ -253,48 +304,80 @@ def _event_relevant_points(n_raw, ev):
     event") that run_three_movements_scan already uses for movements_scan:
     the event's own target_houses cusps themselves, their ruler/co-ruler/
     occupying planets (via get_house_element_names - the exact function
-    movements_scan calls, previously imported here but never wired up to
-    candidate_verification), plus the four angles (ASC/DSC/MC/IC), which
-    are always legitimate rectification significators on their own.
+    movements_scan calls), plus whichever of the four angles (ASC/DSC/MC/
+    IC) actually corresponds to one of this event's target_houses.
+
+    FIX (previous behaviour flagged as a bug by the person after seeing a
+    full-day pipeline run return sub-0.1 degree hits for every one of 7
+    verified candidates across all 18 events with no exceptions - clearly
+    non-discriminating, contradicting this section's own documented intent
+    in help_texts/rectification.md: "these numbers should discriminate
+    between candidates"): this function used to add ALL FOUR angles
+    unconditionally to every event's relevant-point set, regardless of
+    that event's target_houses - a marriage event (target_houses=[7])
+    would still get the MC and IC added "for free", a career event
+    (target_houses=[10]) would still get the ASC and DSC added "for free",
+    etc. House CUSPS were already conditional on target_houses membership
+    (see the loop below) - angles were the odd one out, and being always-
+    on is what let an event's "hit" come from a candidate's directed angle
+    landing on some thematically unrelated natal point, for EVERY event,
+    regardless of theme. Angles are now included on exactly the same
+    conditional basis as their own house cusp already was (ascendant iff
+    1 in target_houses, imum_coeli iff 4, descendant iff 7, medium_coeli
+    iff 10) via _ANGLE_FOR_HOUSE - still always-eligible as significators
+    when an event is genuinely angular-house-themed, never as a blanket
+    inclusion for events that aren't.
 
     Falls back to ALL 12 house cusps + the 4 angles when an event carries
     no target_houses at all, so events without house reasoning aren't
-    silently dropped from candidate_verification.
-
-    Why this matters: without this restriction, "best_angular_aspect"
-    searched every one of a candidate's directed/progressed house cusps
-    and angles against every natal point, for every event, regardless of
-    which houses were actually reasoned as relevant to that specific
-    event. With 12 houses x ~14 points x the full aspect set x 4
-    techniques, that search space is wide enough that almost ANY
-    candidate time shows a sub-0.1 degree "hit" somewhere - a real,
-    observed effect (a full-day rectification run showed 9 of 11 tested
-    candidates with 6-7 of 7 personal events under 0.1 degree, which
-    doesn't discriminate between candidates at all). Restricting the
-    search to the event's own reasoned significators - the same
-    restriction movements_scan already applies - makes a "hit" mean what
-    the methodology says it should mean, and, as a side effect, sharply
-    cuts how much unused near-miss data candidate_verification returns.
+    silently dropped from candidate_verification - this fallback is
+    intentionally broad (equivalent to "no reasoning available, don't
+    filter") and unaffected by the fix above.
     """
     target_houses = ev.get("target_houses")
-    relevant = set(ANGLE_KEYS)
+    relevant = set()
     if not target_houses:
-        return relevant | set(HOUSE_KEYS)
+        return set(ANGLE_KEYS) | set(HOUSE_KEYS)
     for h in target_houses:
         if isinstance(h, int) and 1 <= h <= 12:
             relevant.add(HOUSE_KEYS[h - 1])
+            if h in _ANGLE_FOR_HOUSE:
+                relevant.add(_ANGLE_FOR_HOUSE[h])
     relevant.update(get_house_element_names(n_raw, target_houses))
     return relevant
 
 
 def _extract_angular_aspects(aspects, max_orb=1.0, relevant_points=None, exclude_self=None):
     """
-    Filter aspects where at least one side is a relevant point, within
-    max_orb. relevant_points defaults to _ANGULAR_POINT_NAMES (all 12
-    house cusps + the 4 angles) for callers outside the per-event
-    candidate_verification path; pass the event-specific set from
-    _event_relevant_points to restrict the search to that event's own
-    reasoned significators instead.
+    Filter aspects to the NATAL side (point_b - see aspects.compute_aspects:
+    point_a is always the computed/moving side - directed, progressed,
+    transiting, or profected - and point_b is always the fixed natal
+    chart) landing on a relevant point, within max_orb. relevant_points
+    defaults to _ANGULAR_POINT_NAMES (all 12 house cusps + the 4 angles)
+    for callers outside the per-event candidate_verification path; pass
+    the event-specific set from _event_relevant_points to restrict the
+    search to that event's own reasoned significators instead.
+
+    FIX (see _event_relevant_points' docstring for the observed symptom
+    this and that fix jointly address): this used to accept a hit when
+    EITHER side was a relevant point ("point_a in points or point_b in
+    points"), unlike engine/criteria.py's run_three_movements_scan /
+    _has_hit - the already-validated reference implementation this
+    function's own docstring has long claimed to mirror ("the same
+    restriction movements_scan already applies"), which has only ever
+    required the NATAL side (its "point_b in targets"). Because angles
+    and house cusps are tracked points on BOTH the moving and the natal
+    side, and used to be added to `points` unconditionally (see the fix
+    to _event_relevant_points above), the "either side" rule meant a
+    candidate's own directed/progressed angle landing on ANY natal point
+    at all - not just that event's reasoned significators - counted as a
+    relevant hit for literally every event, regardless of theme. Matching
+    movements_scan's own point_b-only convention removes that half of the
+    leak; the other half (angles no longer unconditional) is fixed above.
+    The moving side is intentionally left unrestricted here, exactly as
+    in movements_scan: which specific directed/transiting body triggers a
+    natal significator is not something the methodology asks to constrain
+    in advance.
 
     exclude_self, when given a point name (e.g. "moon"), drops any aspect
     where BOTH sides are that same point. This exists for technique="
@@ -320,14 +403,26 @@ def _extract_angular_aspects(aspects, max_orb=1.0, relevant_points=None, exclude
             continue
         if exclude_self and a["point_a"] == exclude_self and a["point_b"] == exclude_self:
             continue
-        if a["point_a"] in points or a["point_b"] in points:
+        if a["point_b"] in points:
             result.append(a)
     return sorted(result, key=lambda x: x["exact_orb"])
 
 
-def _best_angular_aspect(aspects, relevant_points=None, exclude_self=None):
-    """Return the single tightest relevant aspect, or None."""
-    angular = _extract_angular_aspects(aspects, max_orb=2.0, relevant_points=relevant_points, exclude_self=exclude_self)
+def _best_angular_aspect(aspects, relevant_points=None, exclude_self=None, max_orb=1.0):
+    """
+    Return the single tightest relevant aspect, or None.
+
+    max_orb used to be hardcoded to 2.0 regardless of caller, looser than
+    every orb table actually feeding this function's `aspects` input
+    (compute_aspects itself already applies DEFAULT_ORB_TABLE_DIRECTION /
+    _TRANSIT, now the caller's own direction_orb_deg / transit_orb_deg -
+    see _process_event_for_candidate) - so it was a no-op safety ceiling,
+    not a real constraint. It now defaults to 1.0 and, more importantly,
+    callers that know the technique's own orb (see
+    _process_event_for_candidate) pass it explicitly so this can never be
+    looser than the orb the aspect was actually computed under.
+    """
+    angular = _extract_angular_aspects(aspects, max_orb=max_orb, relevant_points=relevant_points, exclude_self=exclude_self)
     return angular[0] if angular else None
 
 
@@ -335,10 +430,22 @@ def _best_angular_aspect(aspects, relevant_points=None, exclude_self=None):
 # Process one event across the full technique stack at a fixed candidate time
 # ---------------------------------------------------------------------------
 
-def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, cand_m, cand_s, ev):
+def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, cand_m, cand_s, ev,
+                                  direction_orb_deg=0.5, transit_orb_deg=1.5):
     """
     Run all applicable techniques for one event at one candidate birth time.
     Returns a dict of technique_name -> result summary.
+
+    direction_orb_deg / transit_orb_deg: the SAME two parameters
+    run_rectification_pipeline already accepts and already threads into
+    run_three_movements_scan - now also threaded down here (previously
+    ignored by this function entirely; see _uniform_orb_table's docstring
+    for why that mattered) so candidate_verification/digest are held to
+    the same orb discipline as movements_scan, not a looser, disconnected
+    one. Each technique below passes the matching orb to both the
+    technique runner (which builds compute_aspects' orb table from it)
+    and to _best_angular_aspect's own max_orb, so the two can never
+    disagree.
     """
     results = {}
     precision = ev.get("precision", "date")  # "datetime", "date", "month", "year"
@@ -347,8 +454,8 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
     # Solar arc — runs for every precision level, year-only included
     # (see _run_solar_arc_for_event's own comment)
     try:
-        sa = _run_solar_arc_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev)
-        best = _best_angular_aspect(sa["aspects"], relevant_points)
+        sa = _run_solar_arc_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev, direction_orb_deg)
+        best = _best_angular_aspect(sa["aspects"], relevant_points, max_orb=direction_orb_deg)
         results["solar_arc"] = {
             "best_angular_aspect": best,
             "total_aspects": len(sa["aspects"]),
@@ -362,8 +469,8 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
 
     # Secondary progression — runs for every precision level, year-only included
     try:
-        sp = _run_secondary_progression_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev)
-        best = _best_angular_aspect(sp["aspects"], relevant_points)
+        sp = _run_secondary_progression_for_event(natal, cand_h, cand_m, cand_s, fixed_offset, n_raw, n_points, ev, direction_orb_deg)
+        best = _best_angular_aspect(sp["aspects"], relevant_points, max_orb=direction_orb_deg)
         results["secondary_progression"] = {
             "best_angular_aspect": best,
             "total_aspects": len(sp["aspects"]),
@@ -377,8 +484,8 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
     # Transit — only when event has a known clock time
     if precision == "datetime":
         try:
-            tr = _run_transit_for_event(natal, n_raw, n_points, ev)
-            best = _best_angular_aspect(tr["aspects"], relevant_points)
+            tr = _run_transit_for_event(natal, n_raw, n_points, ev, transit_orb_deg)
+            best = _best_angular_aspect(tr["aspects"], relevant_points, max_orb=transit_orb_deg)
             results["transit"] = {
                 "best_angular_aspect": best,
                 "total_aspects": len(tr["aspects"]),
@@ -390,10 +497,11 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
     # Profection — runs for every precision level (year-only events are
     # defaulted to a mid-year date inside _run_profection_for_event; per
     # rectification.md step 5, the full direction stack applies to every
-    # event without a known clock time, not just date-precision ones)
+    # event without a known clock time, not just date-precision ones).
+    # direction_orb_deg, not transit_orb_deg - see _run_profection_for_event.
     try:
-        pf = _run_profection_for_event(natal, n_raw, n_points, ev)
-        best = _best_angular_aspect(pf["aspects"], relevant_points)
+        pf = _run_profection_for_event(natal, n_raw, n_points, ev, direction_orb_deg)
+        best = _best_angular_aspect(pf["aspects"], relevant_points, max_orb=direction_orb_deg)
         results["profection"] = {
             "best_angular_aspect": best,
             "total_aspects": len(pf["aspects"]),
@@ -401,13 +509,14 @@ def _process_event_for_candidate(natal, fixed_offset, n_raw, n_points, cand_h, c
     except Exception as e:
         results["profection"] = {"error": str(e)}
 
-    # Lunar return — same reasoning as profection above. exclude_self=
+    # Lunar return — same reasoning as profection above (direction_orb_deg,
+    # not transit_orb_deg - see _run_lunar_return_for_event). exclude_self=
     # "moon": see _extract_angular_aspects' docstring - a lunar return's
     # own defining feature (transiting Moon = natal Moon) is not evidence
     # about the candidate birth time and must not be allowed to win here.
     try:
-        lr = _run_lunar_return_for_event(natal, n_raw, n_points, ev)
-        best = _best_angular_aspect(lr["aspects"], relevant_points, exclude_self="moon")
+        lr = _run_lunar_return_for_event(natal, n_raw, n_points, ev, direction_orb_deg)
+        best = _best_angular_aspect(lr["aspects"], relevant_points, exclude_self="moon", max_orb=direction_orb_deg)
         results["lunar_return"] = {
             "best_angular_aspect": best,
             "total_aspects": len(lr["aspects"]),
@@ -491,8 +600,14 @@ def _build_digest(verification, events):
     events_by_name = {e["name"]: e for e in events}
     personal_names = [n for n, e in events_by_name.items() if e.get("category") == "personal"]
     other_names = [n for n, e in events_by_name.items() if e.get("category") != "personal"]
+    all_names = personal_names + other_names
 
     candidates = []
+    # Accumulates, per EVENT (not per candidate), how many of the
+    # candidates actually verified in this run showed a sub-0.1/sub-0.5
+    # degree hit for that event - see per_event_saturation below.
+    event_hit_counts = {name: {"sub01": 0, "sub05": 0, "seen": 0} for name in all_names}
+
     for cand_label, per_event in verification.items():
         personal_events_out = []
         personal_sub01 = personal_sub05 = 0
@@ -503,19 +618,25 @@ def _build_digest(verification, events):
             b = _best_of_event(techs)
             if b is not None:
                 personal_events_out.append({"name": name, **b})
+                event_hit_counts[name]["seen"] += 1
                 if b["orb_deg"] < 0.1:
                     personal_sub01 += 1
+                    event_hit_counts[name]["sub01"] += 1
                 if b["orb_deg"] < 0.5:
                     personal_sub05 += 1
+                    event_hit_counts[name]["sub05"] += 1
 
         for name in other_names:
             techs = per_event.get(name, {})
             b = _best_of_event(techs)
             if b is not None:
+                event_hit_counts[name]["seen"] += 1
                 if b["orb_deg"] < 0.1:
                     other_sub01 += 1
+                    event_hit_counts[name]["sub01"] += 1
                 if b["orb_deg"] < 0.5:
                     other_sub05 += 1
+                    event_hit_counts[name]["sub05"] += 1
 
         candidates.append({
             "time": cand_label,
@@ -530,6 +651,33 @@ def _build_digest(verification, events):
             "personal_events": personal_events_out,
         })
 
+    # per_event_saturation: the SAME tally as above, transposed to one row
+    # per event across all verified candidates, mirroring
+    # movements_intersection's own per_event_selectivity (qualifying/
+    # tested/ratio) - not a new metric, the same "how often does this
+    # event actually discriminate" question movements_intersection already
+    # answers for movements_scan, now answered for candidate_verification
+    # too. This is a direct, mechanical count over data already computed
+    # above (which candidates hit which events at which orb) - not a
+    # score or ranking of candidates: it says nothing about which
+    # candidate is better, only which EVENTS are and aren't discriminating
+    # in this run. An event at or near 100% here contributed ~nothing to
+    # telling candidates apart in this run, however tight its per-
+    # candidate orb reads in the table above - flag it rather than read
+    # its tight orbs as corroboration. A low ratio is what a genuinely
+    # selective significator set looks like.
+    per_event_saturation = {}
+    for name in all_names:
+        c = event_hit_counts[name]
+        seen = c["seen"]
+        per_event_saturation[name] = {
+            "candidates_verified": seen,
+            "sub_0.1deg_count": c["sub01"],
+            "sub_0.1deg_ratio": round(c["sub01"] / seen, 3) if seen else None,
+            "sub_0.5deg_count": c["sub05"],
+            "sub_0.5deg_ratio": round(c["sub05"] / seen, 3) if seen else None,
+        }
+
     return {
         "method": "candidate_verification_digest",
         "note": (
@@ -540,9 +688,19 @@ def _build_digest(verification, events):
             "optionally with the REST endpoints for large results, for "
             "their detail). Best-aspect search is restricted to each "
             "event's own reasoned target_houses elements plus the four "
-            "angles (see _event_relevant_points) - not all 12 houses - so "
+            "angles ONLY where those angles correspond to one of the "
+            "event's own target_houses (see _event_relevant_points), never "
+            "all four regardless of theme, and only counts a hit on the "
+            "NATAL side of the aspect (see _extract_angular_aspects) at an "
+            "orb no looser than the direction_orb_deg / transit_orb_deg "
+            "this pipeline call received (see _uniform_orb_table) - so "
             "these numbers should discriminate between candidates rather "
-            "than being tight for almost all of them. Each candidate also "
+            "than being tight for almost all of them. Check "
+            "per_event_saturation below before trusting any single event's "
+            "tight orb as discriminating in THIS run: an event with a high "
+            "sub_0.1deg_ratio there hit almost every verified candidate "
+            "and isn't distinguishing between them, whatever its own orb "
+            "reads for the candidate under study. Each candidate also "
             "carries its own 'tier' (see candidate_selection_tiers / "
             "_build_candidate_list) - a run often verifies candidates from "
             "more than one tier at once (e.g. the always-included "
@@ -553,7 +711,8 @@ def _build_digest(verification, events):
             "initial_guess_vicinity candidate was tested BECAUSE it's near "
             "the supplied guess, not because anything pointed there. This "
             "is NOT a ranking: candidates are listed in candidate_"
-            "verification's own order, and the sub_0.1/sub_0.5 counts are "
+            "verification's own order, and the sub_0.1/sub_0.5 counts (per "
+            "candidate above, per event in per_event_saturation below) are "
             "a direct tally of a real measured quantity, never summed into "
             "one combined score or used here to pick a 'winner' - see "
             "help_texts/rectification.md's no-scoring rule and 'Personal "
@@ -561,6 +720,7 @@ def _build_digest(verification, events):
             "and the auxiliary checks, per the mandatory sequence."
         ),
         "candidates": candidates,
+        "per_event_saturation": per_event_saturation,
     }
 
 
@@ -857,7 +1017,8 @@ def run_rectification_pipeline(
 
         for ev in events:
             per_event[ev["name"]] = _process_event_for_candidate(
-                natal, fixed_offset, n_raw, n_points, ch, cm, cs, ev
+                natal, fixed_offset, n_raw, n_points, ch, cm, cs, ev,
+                direction_orb_deg=direction_orb_deg, transit_orb_deg=transit_orb_deg,
             )
 
         # "_tier"/"_corroborating_events" are metadata about the candidate
