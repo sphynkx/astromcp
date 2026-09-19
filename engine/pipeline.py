@@ -380,28 +380,44 @@ def _extract_angular_aspects(aspects, max_orb=1.0, relevant_points=None, exclude
     in advance.
 
     exclude_self, when given a point name (e.g. "moon"), drops any aspect
-    where BOTH sides are that same point. This exists for technique="
-    lunar_return" specifically: a lunar return chart is, by its own
-    definition, the moment the transiting Moon returns to (approximately)
-    its natal degree - so a moon/moon conjunction near 0deg is structurally
-    guaranteed on every lunar return, for every candidate birth time,
-    contributing zero actual evidence about which candidate is correct.
-    Confirmed directly: without this exclusion, whenever "moon" happened
-    to be one of an event's own reasoned significators (e.g. ruler of a
-    Cancer house cusp), this trivial self-match dominated
-    best_angular_aspect for every candidate tested, silently defeating
-    the _event_relevant_points restriction above for that event. The
-    equivalent solar/sun self-match isn't excluded here because
-    technique="solar_return" is not currently invoked by
-    _process_event_for_candidate at all - only lunar_return is - but the
-    same exclusion would apply if that changes.
+    whose MOVING side (point_a - the computed/technique-chart point) is
+    that point, regardless of what point_b is. This exists for
+    technique="lunar_return" specifically: a lunar return chart is, by
+    its own definition, built at the exact moment the transiting Moon
+    returns to (approximately) its natal degree - so computed["moon"]
+    (point_a, whenever "moon" is the aspect's moving side) is ALWAYS
+    pinned to within a hair of the CANDIDATE's own natal Moon, for every
+    event and every lunar-return date alike. That means it is not only
+    a moon/moon conjunction that is structurally guaranteed and
+    contributes zero evidence - ANY aspect with point_a="moon" (moon-
+    saturn, moon-pluto, moon-anything) silently collapses to "this
+    candidate's own natal Moon vs its own natal point_b", a quantity
+    that depends only on the candidate birth time under test, not on
+    the event's actual lunar-return chart at all. Because natal_pts is
+    the same fixed natal chart for every event checked against a given
+    candidate, such an aspect reports the IDENTICAL point_b/aspect_deg/
+    orb for every event - which was directly observed (a moon-saturn
+    "hit" at an identical 0.0173deg orb across five unrelated events
+    spanning 33 years) and had been mistaken for independent
+    corroboration. The previous, narrower form of this exclusion only
+    dropped the case where point_b was *also* "moon" (an exact 0deg
+    self-conjunction); that missed every other point_b, which is why
+    the false corroboration persisted after that fix. Aspects where
+    "moon" is the natal side instead (point_b="moon", point_a some
+    other technique-chart point, e.g. LR-Saturn-at-that-event's-return-
+    date vs natal Moon) are unaffected by this exclusion and remain
+    legitimate, event-dependent evidence. The equivalent solar/sun
+    self-match isn't excluded here because technique="solar_return" is
+    not currently invoked by _process_event_for_candidate at all - only
+    lunar_return is - but the same point_a-only exclusion would apply
+    if that changes.
     """
     points = relevant_points if relevant_points is not None else _ANGULAR_POINT_NAMES
     result = []
     for a in aspects:
         if a["exact_orb"] > max_orb:
             continue
-        if exclude_self and a["point_a"] == exclude_self and a["point_b"] == exclude_self:
+        if exclude_self and a["point_a"] == exclude_self:
             continue
         if a["point_b"] in points:
             result.append(a)
