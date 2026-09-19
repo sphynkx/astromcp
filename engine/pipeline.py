@@ -602,6 +602,29 @@ def _build_digest(verification, events):
     other_names = [n for n, e in events_by_name.items() if e.get("category") != "personal"]
     all_names = personal_names + other_names
 
+    # The subject's own death (see help_texts/rectification.md, "The
+    # subject's own death is a maximum-priority personal event") is
+    # flagged by the caller with is_own_death=True on that one event dict
+    # - never inferred from the event's name, since names are free text
+    # in any language. This does NOT change which techniques ran (that's
+    # still governed purely by precision, same as any other event - an
+    # is_own_death event with a genuinely known clock time already gets
+    # transit automatically via precision=="datetime", and one known only
+    # to a date/range still gets the full direction stack like any
+    # date-precision event); it only controls whether this digest also
+    # echoes that one event's result under its own top-level key below,
+    # so a reader can never lose it in a 30+ event personal_events list.
+    # Purely a visibility/labeling change - not a score, weight, or
+    # ranking input (see the project's standing no-invented-scoring rule).
+    death_event_names = [n for n, e in events_by_name.items() if e.get("is_own_death")]
+    death_event_name = death_event_names[0] if death_event_names else None
+    if len(death_event_names) > 1:
+        logger.warning(
+            "digest: %d events flagged is_own_death=True (%s) - using the "
+            "first; a birth chart has exactly one subject and one death",
+            len(death_event_names), death_event_names,
+        )
+
     candidates = []
     # Accumulates, per EVENT (not per candidate), how many of the
     # candidates actually verified in this run showed a sub-0.1/sub-0.5
@@ -638,6 +661,22 @@ def _build_digest(verification, events):
                     other_sub05 += 1
                     event_hit_counts[name]["sub05"] += 1
 
+        # own_death_event: the same best-of-event lookup already done
+        # above for personal_events_out, repeated here for just the
+        # is_own_death event (if any) so it surfaces as its own key
+        # instead of requiring a reader to find it inside a long
+        # personal_events list. It is still counted normally inside
+        # personal_events/personal_sub_0.1deg etc above (category=
+        # "personal" as usual) - this is a duplicate view, not a
+        # separate computation or an extra weight.
+        own_death_out = None
+        if death_event_name is not None:
+            techs = per_event.get(death_event_name, {})
+            b = _best_of_event(techs)
+            own_death_out = {"name": death_event_name, **b} if b is not None else {
+                "name": death_event_name, "note": "no qualifying angular aspect found"
+            }
+
         candidates.append({
             "time": cand_label,
             "tier": per_event.get("_tier"),
@@ -649,6 +688,7 @@ def _build_digest(verification, events):
             "career_minor_sub_0.1deg": other_sub01,
             "career_minor_sub_0.5deg": other_sub05,
             "personal_events": personal_events_out,
+            "own_death_event": own_death_out,
         })
 
     # per_event_saturation: the SAME tally as above, transposed to one row
@@ -717,7 +757,14 @@ def _build_digest(verification, events):
             "one combined score or used here to pick a 'winner' - see "
             "help_texts/rectification.md's no-scoring rule and 'Personal "
             "events take priority'. Use alongside movements_intersection "
-            "and the auxiliary checks, per the mandatory sequence."
+            "and the auxiliary checks, per the mandatory sequence. Each "
+            "candidate also carries 'own_death_event': the same best-"
+            "angular-aspect lookup as personal_events, but pulled out for "
+            "just the event the caller flagged is_own_death=True on (null "
+            "if no event was so flagged), per help_texts/rectification.md "
+            "'The subject's own death is a maximum-priority personal "
+            "event' - check this field first when reasoning about a "
+            "candidate, before scanning the full personal_events list."
         ),
         "candidates": candidates,
         "per_event_saturation": per_event_saturation,
@@ -760,11 +807,41 @@ def run_rectification_pipeline(
       - target_houses (list[int]): houses relevant to this event
       - category (str): "personal" | "career" | "minor"
       - tz_offset_minutes (int, optional): event timezone offset
+      - is_own_death (bool, optional, default False): set True on the
+        subject's own death, if it is one of the events sent (it should
+        almost always be - see help_texts/rectification.md, "The
+        subject's own death is a maximum-priority personal event"). Does
+        NOT change which techniques run for that event - that is still
+        governed purely by precision as normal (transit runs whenever
+        precision=="datetime", i.e. whenever the death has a genuinely
+        known clock time, exactly like any other event). It only makes
+        `digest` echo that event's result under its own top-level
+        "own_death_event" key on every candidate, instead of leaving it
+        to be found inside a long personal_events list. At most one
+        event should carry this flag; if more than one does, the first
+        is used and a warning is logged.
 
     `candidate_times` (optional): specific times to verify via solar_arc
       direct check, e.g. [{"hour": 10, "minute": 0, "second": 0}, ...].
       If not given, candidates are derived from scan range center + top
       movements_scan intersections.
+
+    `initial_guess_hour` / `initial_guess_minute` (optional): the stated
+      or documented birth time, if one exists for this subject (family
+      report, birth record, autobiography, etc.) - NOT an arbitrary
+      numeric seed. Supplying it does two things: (1) its +/-15 min
+      vicinity is always included in candidate_verification (tier
+      "initial_guess_vicinity" - see _build_candidate_list), so the
+      stated time is always directly checked even when movements_scan
+      points elsewhere; (2) as of this version, it also makes the
+      scan/verification window a HARD requirement rather than a
+      suggestion: scan_start/scan_end must fall within +/-2h of it, or
+      this function raises ValueError before doing any computation - see
+      the check at the top of this function and help_texts/
+      rectification.md, "Scan window is bounded by the stated birth
+      time, not open-ended". Leave both None for a genuinely blind case
+      (no stated time at all) to run a wide/full-day scan with no window
+      restriction.
 
     Returns a dict with:
       - trutina: Trutina Hermetis results
@@ -802,6 +879,64 @@ def run_rectification_pipeline(
       - elapsed_seconds: total computation time
     """
     t0 = time.time()
+
+    # -----------------------------------------------------------------------
+    # Categorical rule: when a stated/documented birth time is given (via
+    # initial_guess_hour/initial_guess_minute - the same parameter
+    # _build_candidate_list already treats as "the stated/documented time",
+    # see its tier B), the scan/verification window MUST stay within +/-2
+    # hours of it. See help_texts/rectification.md, "Scan window is
+    # bounded by the stated birth time, not open-ended".
+    #
+    # This used to be left to the caller's per-case judgement (the
+    # "restrict near a known estimate instead of a full 24h blind scan"
+    # practice adopted after the Mylene Farmer saturation episode). It is
+    # now enforced here, unconditionally, the moment a stated time is
+    # supplied - not a convention someone can forget to apply. Data
+    # outside that +/-2h band is not used for this rectification, full
+    # stop: a wide/full-day blind scan is a different kind of search (see
+    # "Wide blind searches..." in the methodology doc) with different
+    # statistical properties, and must be requested as ITS OWN call with
+    # no initial_guess_hour/initial_guess_minute set - never smuggled in
+    # as a widened window alongside a stated time.
+    #
+    # When no stated time exists at all (initial_guess_hour is None - a
+    # genuinely blind case, no family/document report of any birth hour),
+    # no restriction is applied here: a wide or full-day search is the
+    # correct and often only available tool in that situation (Aizin's
+    # own point that zero-information rectification is otherwise
+    # unsolved - see "Realistic expectations" in the methodology doc).
+    # -----------------------------------------------------------------------
+    if initial_guess_hour is not None and initial_guess_minute is not None:
+        def _signed_offset_minutes(t_min, guess_min):
+            # Smallest signed difference (t_min - guess_min) on a 24h
+            # clock, in (-720, 720] minutes. Using this instead of plain
+            # subtraction (or a single end<start day-rollover fixup)
+            # handles a stated birth time itself sitting near midnight
+            # correctly - e.g. guess=00:30 with window 22:30-02:30 must
+            # read as exactly +/-2h, not as wildly out of range.
+            d = (t_min - guess_min) % (24 * 60)
+            if d > 12 * 60:
+                d -= 24 * 60
+            return d
+
+        guess_min = initial_guess_hour * 60 + initial_guess_minute
+        start_min = scan_start_hour * 60 + scan_start_minute
+        end_min = scan_end_hour * 60 + scan_end_minute
+        off_start = _signed_offset_minutes(start_min, guess_min)
+        off_end = _signed_offset_minutes(end_min, guess_min)
+        if off_start < -120 or off_end > 120:
+            raise ValueError(
+                "scan window must stay within +/-2h of the stated birth "
+                f"time (initial_guess_hour/minute = "
+                f"{initial_guess_hour:02d}:{initial_guess_minute:02d}); got "
+                f"scan_start={scan_start_hour:02d}:{scan_start_minute:02d}, "
+                f"scan_end={scan_end_hour:02d}:{scan_end_minute:02d}. See "
+                "help_texts/rectification.md, 'Scan window is bounded by "
+                "the stated birth time, not open-ended'. To run a wide/"
+                "blind scan instead, omit initial_guess_hour and "
+                "initial_guess_minute entirely."
+            )
 
     natal = {
         "year": natal_year, "month": natal_month, "day": natal_day,

@@ -491,6 +491,49 @@ is to give the documented time the same direct, event-by-event
 verification the search's winner already got (see previous section)
 before deciding there's a real conflict at all.
 
+(This section describes a genuinely blind case - no stated time at all.
+When a stated time DOES exist, see the next section: a wide/full-day
+scan is no longer something to weigh against it case by case, it is
+simply not run in the same rectification at all.)
+
+## Scan window is bounded by the stated birth time, not open-ended
+
+**When a birth time has been stated or documented for this person -
+family testimony, a birth certificate, an autobiography, anything - the
+scan and verification window MUST be restricted to +/-2 hours around
+that stated time. A wide or full-day blind scan is never run in the
+same rectification as a stated time.** This is categorical, the same
+class of rule as the no-invented-scoring rule above, not a per-case
+judgement call.
+
+This was previously a discretionary practice ("restrict near a known
+estimate instead of a full 24h blind scan"), adopted after a real
+session (Mylene Farmer) where a full-day blind scan produced severe
+`candidate_verification` saturation that a narrower, tighter-orbed rerun
+resolved. Restated here as a hard rule, and as of this version it is
+also enforced mechanically: `rectif_pipeline`/`rectif_pipeline_start`
+raise `ValueError` if `scan_start`/`scan_end` fall outside +/-2h of
+`initial_guess_hour`/`initial_guess_minute` whenever that stated-time
+parameter is supplied. There is no "just this once, wider" exception
+from inside a single call - if the +/-2h window turns out to be wrong
+for a given case, that is a decision to make explicitly with the
+person, in a NEW call with no `initial_guess_hour`/`initial_guess_minute`
+set (a genuinely blind full-day search, see "Wide blind searches"
+above), never by quietly widening `scan_start`/`scan_end` past the
++/-2h band while still anchoring the rest of the run to that stated
+time.
+
+**Data outside the +/-2h band is not used for this rectification, full
+stop - including signals from methods that don't take a scan window as
+input.** `rectif_degree_clustering` works from event dates alone and can
+return a peak whose derived Ascendant/MC time falls outside the +/-2h
+band entirely; when that happens, report the peak (never suppress a
+real result), but do not treat it as grounds to widen the search inside
+this rectification. It is recorded for the record and is a legitimate
+reason to discuss a full separate blind-scan call with the person - it
+is not, by itself, an override of the +/-2h rule for the run already in
+progress.
+
 ## Reasoning about which houses apply to an event
 
 "Elements of house" (Shestopalov/St.Petersburg Academy of Astrology
@@ -564,6 +607,57 @@ scheme" above, which still applies. The priority here is about
 investigative order and which evidence to trust when two categories of
 events point to different candidates, not about feeding a different
 number into anything.
+
+## The subject's own death is a maximum-priority personal event
+
+**The subject's own death belongs in the event list for essentially
+every rectification, and is treated as a maximum-priority personal
+event - the same investigative tier as a first marriage's directed-MC
+aspect (see "solar_arc" in the technique inventory above).** Send it
+with `category: "personal"` and `is_own_death: true` when using the
+pipeline tool.
+
+**If the exact time of death is known or documented (a death
+certificate, a hospital record, a reliable eyewitness account with a
+clock time), it MUST be investigated with `technique="transit"` AND the
+full direction stack (`solar_arc`, `secondary_progression`, `profection`,
+`lunar_return`) - never left at directions alone when a real clock time
+exists, and never skipped.** This is the same categorical rule as
+"Always pass known event times..." above, restated here because death is
+easy to under-weight relative to marriages/births in practice even
+though nothing about the underlying chart logic ranks it lower: a
+natal chart's own end is one of its own most fundamental correspondences
+(classical hyleg/apheta doctrine treats the moment of death as encoded
+in the nativity from the start), not a minor biographical detail. Using
+the pipeline tool, this is mechanical: give the event `precision:
+"datetime"` with the known `hour`/`minute`/`second` and it receives
+transit automatically, exactly like any other precisely-timed event -
+the server does not require anything extra beyond correct precision/
+time fields to run the full stack on it.
+
+If only a date, or a time RANGE (a death certificate reading "between
+03:00 and 04:30", for instance), is known - not a single clock time -
+this event still gets the full direction stack like any date-precision
+event (`precision: "date"`), but transit cannot run on a range as a
+single input; note the range explicitly in the event's `name` field
+(e.g. `"Death (heart attack), time uncertain 03:00-04:30"`) so this
+limitation is visible in the report, and consider re-running with
+`precision: "datetime"` at each boundary/midpoint of the range as
+separate diagnostic checks if narrowing the death time itself would
+materially help the case.
+
+`digest` surfaces the `is_own_death`-flagged event's result under its
+own `own_death_event` key on every verified candidate (see the Pipeline
+tool section below), specifically so it is never lost inside a long
+`personal_events` list - check that field first when reading a
+candidate's digest entry, before scanning the rest.
+
+This does not license assigning the death event a higher numeric
+`weight` either - the same "Absolute rule: never invent a scoring or
+weighting scheme" applies here as it does to marriages and children
+above. The priority is investigative and reporting emphasis (always run
+the full applicable stack on it, always surface it distinctly in the
+report), not a number fed into anything.
 
 ## Directions are mandatory for imprecise dates, not optional
 
@@ -825,10 +919,16 @@ something was checked. Specifically:
     "precision": "datetime",
     "target_houses": [1, 8, 12],
     "category": "personal",
+    "is_own_death": true,
     "tz_offset_minutes": 60
   }
 ]
 ```
+`is_own_death: true` on the subject's own death event makes `digest`
+echo that event's result under its own `own_death_event` key per
+candidate (see "The subject's own death is a maximum-priority personal
+event" above) - it does not change which techniques run (still governed
+by `precision` as normal).
 
 **Output structure:**
   - `trutina` — four-branch Trutina Hermetis result
@@ -866,7 +966,11 @@ something was checked. Specifically:
     scheme") — it is a same-order restatement of `candidate_verification`
     with the low-value nested detail (total_aspects, angular_aspects_
     under_1deg, per-technique meta) removed and non-personal events
-    collapsed to counts.
+    collapsed to counts. Each candidate also carries `own_death_event`:
+    the same best-angular-aspect lookup as `personal_events`, pulled out
+    separately for whichever event was sent with `is_own_death: true`
+    (null if none was) — see "The subject's own death is a maximum-
+    priority personal event" above; check this field first.
   - `summary` — event counts, cell counts, completeness
 
 Also available as a REST endpoint: `POST /astro/rectify` with the same

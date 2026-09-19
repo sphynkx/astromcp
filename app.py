@@ -1050,10 +1050,30 @@ def rectif_pipeline(
         location or time zone genuinely differs from the birthplace (a
         different city, a historical LMT/pre-standard-time offset, etc.)
         and is left at the defaults will be silently transit-scored at
-        the wrong civil time.
+        the wrong civil time;
+      is_own_death (bool, optional, default False) — set True on the
+        subject's own death event (it should almost always be sent as
+        one of the events). Does not change which techniques run for it
+        — that's still governed by precision as always (a known clock
+        time still gets transit automatically via precision=="datetime",
+        exactly like any other event) — it only makes `digest` echo that
+        event's result under its own "own_death_event" key per candidate
+        so it can't get lost in a long personal_events list. See
+        help_texts/rectification.md, "The subject's own death is a
+        maximum-priority personal event".
 
     `candidate_times` (optional) — explicit [{hour, minute, second}, ...]
     to verify; if omitted, derived from intersection + scan midpoint.
+
+    `initial_guess_hour`/`initial_guess_minute` (optional) — the stated
+    or documented birth time (family report, birth record, autobiography,
+    etc.), NOT an arbitrary seed. When given: its +/-15 min vicinity is
+    always verified (tier "initial_guess_vicinity"), AND scan_start/
+    scan_end are now REQUIRED to fall within +/-2h of it — this call
+    raises ValueError otherwise. Leave both unset only for a genuinely
+    blind case (no stated time at all), which allows an unrestricted/
+    full-day scan. See help_texts/rectification.md, "Scan window is
+    bounded by the stated birth time, not open-ended".
 
     Returns the full data matrix for Claude to interpret and render the
     final verdict + mandatory report tables.
@@ -1105,6 +1125,13 @@ def rectif_pipeline_start(
 
     Use this for large event lists (30+ events) where the synchronous
     version might exceed MCP/proxy timeouts.
+
+    Same parameters as rectif_pipeline, including: events may carry
+    is_own_death=True on the subject's own death event; and, if
+    initial_guess_hour/initial_guess_minute (the stated/documented birth
+    time) is given, scan_start/scan_end must fall within +/-2h of it or
+    the job finishes with status "error" (see rectif_pipeline's full
+    docstring and help_texts/rectification.md).
     """
     if not events:
         return {"error": "events list is required and must be non-empty"}
