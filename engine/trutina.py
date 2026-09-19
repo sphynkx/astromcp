@@ -372,11 +372,52 @@ def run_trutina_hermetis(
     )
 
     mother_elongation = None
+    mother_time_known = False
     if mother_year is not None:
+        if mother_hour is not None:
+            # A specific clock time was given for the mother - that time is
+            # meaningless without knowing its timezone, so require one
+            # explicitly here too (same contract build_subject enforces
+            # everywhere else). Fail loudly rather than silently assuming
+            # a zone the caller never specified.
+            if mother_tz_str is None and mother_tz_offset_minutes is None:
+                raise ValueError(
+                    "mother_hour was given without mother_tz_str or "
+                    "mother_tz_offset_minutes - a clock time is meaningless "
+                    "without its timezone. Either supply the mother's "
+                    "timezone, or omit mother_hour/mother_minute/"
+                    "mother_second entirely if her exact birth time is "
+                    "unknown (the common case - see below)."
+                )
+            mother_use_hour = mother_hour
+            mother_use_minute = mother_minute if mother_minute is not None else 0
+            mother_use_second = mother_second if mother_second is not None else 0
+            mother_use_tz_str = mother_tz_str
+            mother_use_tz_offset = mother_tz_offset_minutes
+            mother_time_known = True
+        else:
+            # No birth time for the mother at all - per this module's own
+            # docstring, "the mother's natal data is rarely available", and
+            # when it is, her exact TIME rarely is either. Rather than
+            # hard-failing the whole Trutina call (and, via the pipeline,
+            # silently dropping Trutina from an entire rectification run -
+            # a real, previously-observed failure mode), fall back to a
+            # neutral UTC-noon reference instant for her chart. The Jonas
+            # Rule search below only needs her Sun-Moon elongation to
+            # within its own +/-20-day / ~12.2-deg-per-day resolution, so a
+            # date-only mother birth is already an approximation at that
+            # scale - this keeps the refinement usable instead of forcing
+            # an all-or-nothing choice between an exact mother time and no
+            # Jonas Rule at all. mother_time_known=False is threaded into
+            # the result below so this approximation is never silently
+            # mistaken for an exact input.
+            mother_use_hour, mother_use_minute, mother_use_second = 12, 0, 0
+            mother_use_tz_str, mother_use_tz_offset = None, 0
+
         mother_subject, _, _ = build_subject(
             "mother_natal", mother_year, mother_month, mother_day,
-            mother_hour, mother_minute, mother_second,
-            mother_lat, mother_lng, mother_tz_str, mother_tz_offset_minutes, house_system, zodiac_type,
+            mother_use_hour, mother_use_minute, mother_use_second,
+            mother_lat, mother_lng, mother_use_tz_str, mother_use_tz_offset, house_system, zodiac_type,
         )
         mother_raw = mother_subject.model_dump(mode="json")
         mother_elongation = _signed_elongation(mother_raw["moon"]["abs_pos"], mother_raw["sun"]["abs_pos"])
@@ -400,6 +441,7 @@ def run_trutina_hermetis(
         "tz_used": describe_utc_offset(fixed_offset),
         "fixed_offset_minutes": fixed_offset,
         "jonas_rule_applied": mother_elongation is not None,
+        "mother_time_known": mother_time_known,
         "note": (
             "Four branches are returned (Kefer's original formulation treats Moon "
             "above/below horizon and waxing/waning as two independent conditions, "
@@ -414,6 +456,16 @@ def run_trutina_hermetis(
             "classical method's biggest source of ambiguity. If a branch shows "
             "cycle_detected=true, see that branch's own note and cycle_candidates "
             "field."
+            + (
+                ""
+                if mother_elongation is None or mother_time_known
+                else " The mother's own birth TIME was not supplied (only her "
+                "birth date), so her Sun-Moon elongation was computed at a "
+                "neutral UTC-noon reference instant on that date rather than "
+                "her real birth moment - see mother_time_known=false. This is "
+                "still a substantial improvement over no Jonas Rule at all, "
+                "but is a date-level approximation, not an exact input."
+            )
         ),
         **branches,
     }

@@ -368,7 +368,11 @@ def rectif_trutina(
     documented) - this removes the classical method's biggest weakness,
     the ~10 candidate conception dates within the gestation window that
     the classical rule alone cannot distinguish between. Worth asking for
-    if at all available.
+    if at all available. mother_year/month/day alone is enough to apply
+    this refinement - mother_hour/minute/second and mother_tz_str/
+    mother_tz_offset_minutes are only needed if her exact birth clock time
+    is also known (which is rare); if mother_hour IS given, a timezone
+    must be given too, since a clock time is meaningless without one.
 
     Documented limitations of the classical method itself (not this
     implementation): assumes conception occurred at the birth location,
