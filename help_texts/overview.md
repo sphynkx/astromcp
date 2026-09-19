@@ -60,6 +60,14 @@ far).
   (prohibition/frustration/refranation), and a Yes/No verdict. Call
   `help("horary")` before using this one too - same "explain the
   computed verdict, don't re-derive it" contract as rectification.
+- `rectif_note_append` - append a short, dated note to this service's own
+  session-notes log (`help_texts/session_notes.md`), read back as
+  `help("session_notes")`. For something YOU discover mid-session that a
+  future session of yours should not have to rediscover (a real bug, a
+  real empirical limitation, a methodology refinement worth retesting) -
+  not for an individual person's rectification result, which belongs in
+  your own chat-side memory instead. Append-only by design - see the
+  tool's own docstring before assuming you can edit or delete an entry.
 - `ping` - connectivity check.
 
 This service is also reachable outside the MCP tool interface, via two

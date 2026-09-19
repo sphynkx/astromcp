@@ -1340,6 +1340,41 @@ def help(topic: str = "overview") -> str:
     return tools.help(topic)
 
 
+@mcp.tool()
+def rectif_note_append(text: str, tag: str = "") -> Dict[str, Any]:
+    """
+    Append a short, dated note to this service's session-notes log
+    (help_texts/session_notes.md), read back via help("session_notes")
+    exactly like any other help topic - no restart needed, since help()
+    re-reads its files from disk on every call, and this file needs no
+    special-casing since it lives in help_texts/ like everything else
+    help() already serves.
+
+    Use this for something discovered mid-session that would help a
+    FUTURE session of yours skip re-discovering it from scratch: a real
+    bug in this codebase, a real empirical limitation of a technique or
+    parameter combination, a methodological refinement worth testing
+    again next time. Do NOT use it for an individual person's
+    rectification result, verdict, or case history - that belongs in
+    your own chat-side memory (which persists per person/case across
+    your sessions already), not here, since this file is shared with
+    every future session or agent that connects to this service.
+
+    Deliberately append-only - there is no edit or delete tool, here or
+    anywhere else in this service, for this file. A note that turns out
+    to matter across more than one case should be promoted into
+    help_texts/rectification.md by a human, as a deliberate,
+    explicitly-discussed edit - not folded in automatically. This log
+    is raw field notes, not curated methodology, and keeping it
+    append-only means no session - including this one - can quietly
+    rewrite the rules that exist to keep it honest.
+
+    tag (optional) - a short label (e.g. a technique or module name) to
+    keep the log skimmable; omit if the note doesn't fit one cleanly.
+    """
+    return tools.rectif_note_append(text, tag)
+
+
 if __name__ == "__main__":
     try:
         mcp.run(transport="streamable-http")

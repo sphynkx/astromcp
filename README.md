@@ -128,6 +128,7 @@ modified, or reused independently.
 | `rectif_degree_clustering` | Brady's graphic/Israitel's condensation method - histograms transiting-degree hits across many events, converts top peaks to candidate times |
 | `horary_chart` | Builds and judges a horary chart (a question asked at a specific moment/place) - radicality, significators, dignity, reception, void-of-course Moon, translation/collection of light, prohibition/frustration/refranation, Yes/No verdict. See `help("horary")` |
 | `help` | Reads a methodology/usage guide from `help_texts/*.md` - see below |
+| `rectif_note_append` | Appends a dated note to `help_texts/session_notes.md`, an append-only session-notes log for the LLM client itself - not curated methodology, gitignored rather than committed, and no edit/delete tool exists for it by design |
 | `ping` | Connectivity test |
 
 Full parameter reference is in the docstrings in `app.py` (visible to the

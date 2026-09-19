@@ -32,4 +32,9 @@ run.sh~
 storage/*
 !storage/.gitkeep
 
+# Session notes (engine/notes.py): LLM-written, not source - everything
+# else in help_texts/ stays tracked and human-curated as before.
+help_texts/session_notes.md
+
 celerybeat-schedule
+

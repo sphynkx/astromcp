@@ -373,6 +373,7 @@ def run_trutina_hermetis(
 
     mother_elongation = None
     mother_time_known = False
+    mother_location_known = False
     if mother_year is not None:
         if mother_hour is not None:
             # A specific clock time was given for the mother - that time is
@@ -414,10 +415,31 @@ def run_trutina_hermetis(
             mother_use_hour, mother_use_minute, mother_use_second = 12, 0, 0
             mother_use_tz_str, mother_use_tz_offset = None, 0
 
+        # The mother's birthPLACE, independently of her birth TIME above,
+        # is also often unavailable - and previously this fell straight
+        # through to build_subject with lat=lng=None, which doesn't raise
+        # its own clear error but instead surfaces as kerykeion's generic
+        # offline-mode "must provide timezone and coordinates" message,
+        # confusing given this module's own docstring says mother_year/
+        # month/day alone should be enough. Fixed the same way _find_
+        # jonas_conception_datetime above and technique_solar_return in
+        # techniques.py already handle an identical case: the Sun-Moon
+        # elongation this block computes is a geocentric angle (see the
+        # "Location is irrelevant" comment on _find_jonas_conception_
+        # datetime above), so an arbitrary point costs nothing in
+        # accuracy - default to (0.0, 0.0) exactly as those do, rather
+        # than requiring the mother's coordinates for a calculation that
+        # doesn't actually use them. mother_location_known is threaded
+        # into the result below so this substitution is never silently
+        # mistaken for a real birthplace.
+        mother_location_known = mother_lat is not None and mother_lng is not None
+        mother_use_lat = mother_lat if mother_location_known else 0.0
+        mother_use_lng = mother_lng if mother_location_known else 0.0
+
         mother_subject, _, _ = build_subject(
             "mother_natal", mother_year, mother_month, mother_day,
             mother_use_hour, mother_use_minute, mother_use_second,
-            mother_lat, mother_lng, mother_use_tz_str, mother_use_tz_offset, house_system, zodiac_type,
+            mother_use_lat, mother_use_lng, mother_use_tz_str, mother_use_tz_offset, house_system, zodiac_type,
         )
         mother_raw = mother_subject.model_dump(mode="json")
         mother_elongation = _signed_elongation(mother_raw["moon"]["abs_pos"], mother_raw["sun"]["abs_pos"])
@@ -442,6 +464,7 @@ def run_trutina_hermetis(
         "fixed_offset_minutes": fixed_offset,
         "jonas_rule_applied": mother_elongation is not None,
         "mother_time_known": mother_time_known,
+        "mother_location_known": mother_location_known,
         "note": (
             "Four branches are returned (Kefer's original formulation treats Moon "
             "above/below horizon and waxing/waning as two independent conditions, "
@@ -453,7 +476,11 @@ def run_trutina_hermetis(
             "method itself. If mother's birth data was supplied, the Jonas Rule "
             "was used to fix the conception date directly instead of leaving it "
             "part of the fixed-point search - this substantially reduces the "
-            "classical method's biggest source of ambiguity. If a branch shows "
+            "classical method's biggest source of ambiguity. mother_lat/mother_lng "
+            "are optional (mother_location_known=false when omitted) - the Sun-Moon "
+            "elongation the Jonas Rule needs is a geocentric angle, unaffected by "
+            "location, so an arbitrary point is substituted rather than requiring "
+            "coordinates for a calculation that doesn't use them. If a branch shows "
             "cycle_detected=true, see that branch's own note and cycle_candidates "
             "field."
             + (

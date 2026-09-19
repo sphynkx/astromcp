@@ -25,6 +25,7 @@ from .trutina import run_trutina_hermetis
 from .criteria import run_three_movements_scan, run_timoshenko_scan, run_bonatti_scan, run_herich_scan
 from .clustering import collect_transiting_degrees, build_degree_histogram, find_time_for_angle
 from .help import get_help
+from .notes import append_note
 from .constants import DEFAULT_POINTS, LUMINARY_NAMES, HOUSE_KEYS
 from .display import print_chart_result, print_technique_result, print_scan_result
 from .jobs import submit_job, get_job
@@ -852,3 +853,11 @@ def ping(message: str = "world") -> str:
 
 def help(topic: str = "overview") -> str:
     return get_help(topic)
+
+
+def rectif_note_append(text: str, tag: str = "") -> Dict[str, Any]:
+    try:
+        return append_note(text, tag)
+    except Exception as e:
+        logger.exception("rectif_note_append failed")
+        return {"error": str(e)}
