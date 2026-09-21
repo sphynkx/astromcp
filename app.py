@@ -1358,6 +1358,45 @@ async def astro_movements_scan(request: Request) -> JSONResponse:
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@mcp.custom_route("/astro/trutina", methods=["POST"])
+async def astro_trutina(request: Request) -> JSONResponse:
+    """POST /astro/trutina — REST wrapper around rectif_trutina (Trutina
+    Hermetis, four-branch). Cheap (no scan, direct iteration) but still
+    routed through run_blocking for consistency and because Swiss
+    Ephemeris calls are never truly free."""
+    try:
+        body = await request.json()
+        result = await asyncio.wrap_future(run_blocking(tools.rectif_trutina, **body))
+        return JSONResponse(result)
+    except Exception as e:
+        logger.exception("REST /astro/trutina failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@mcp.custom_route("/astro/bonatti_scan", methods=["POST"])
+async def astro_bonatti_scan(request: Request) -> JSONResponse:
+    """POST /astro/bonatti_scan — REST wrapper around rectif_bonatti_scan."""
+    try:
+        body = await request.json()
+        result = await asyncio.wrap_future(run_blocking(tools.rectif_bonatti_scan, **body))
+        return JSONResponse(result)
+    except Exception as e:
+        logger.exception("REST /astro/bonatti_scan failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@mcp.custom_route("/astro/herich_scan", methods=["POST"])
+async def astro_herich_scan(request: Request) -> JSONResponse:
+    """POST /astro/herich_scan — REST wrapper around rectif_herich_scan."""
+    try:
+        body = await request.json()
+        result = await asyncio.wrap_future(run_blocking(tools.rectif_herich_scan, **body))
+        return JSONResponse(result)
+    except Exception as e:
+        logger.exception("REST /astro/herich_scan failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @mcp.custom_route("/astro/rectify_async", methods=["POST"])
 async def astro_rectify_async(request: Request) -> JSONResponse:
     """
