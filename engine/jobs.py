@@ -86,6 +86,46 @@ def _list_ids() -> list:
 
 # --- public API ---
 
+def run_blocking(func: Callable, *args, **kwargs):
+    """
+    Submit synchronous, CPU-bound work (chart construction, a
+    movements_scan sweep, anything that touches kerykeion/pyswisseph
+    directly) to the SAME bounded thread pool submit_job's background
+    jobs use, and return a concurrent.futures.Future.
+
+    Why this exists: every @mcp.custom_route handler in app.py is a
+    plain `async def` — Starlette/uvicorn route, not an MCP tool call.
+    The MCP tool-call path (the official mcp.server.fastmcp.FastMCP
+    dispatcher) already runs synchronous tool functions in a thread via
+    anyio, so tools called over the MCP protocol were never the problem.
+    But a synchronous function called DIRECTLY inside a hand-written
+    `async def` custom_route handler blocks the entire event loop for
+    the call's whole duration — on a full-day movements_scan sweep
+    that's minutes, during which the server can't answer ANY other
+    request, including trivially cheap ones like GET /astro/jobs. That
+    was confirmed directly: with a heavy /astro/movements_scan call in
+    flight, even /astro/jobs (a dict lookup, no astrology at all)
+    stopped responding until the blocking call finished - restarting
+    nginx/raising its timeouts didn't help, because the bottleneck was
+    never "waited too long for a response", it was "the process could
+    not produce a response to anything at all".
+
+    Every custom_route handler that calls into engine/ synchronous code
+    (build_full_report, build_natal_chart_svg, run_rectification_pipeline
+    called synchronously, rectif_movements_scan, fetch_photo_as_data_uri)
+    must go through this — see app.py's route handlers for the pattern:
+        result = await asyncio.wrap_future(run_blocking(some_sync_func, **kwargs))
+
+    Deliberately reuses submit_job's own _executor (bounded at
+    max_workers=4) rather than asyncio.to_thread's separate default
+    executor, so there is exactly ONE place controlling how much
+    CPU-bound astrology work runs at once across both background jobs
+    and synchronous REST calls - not two uncoordinated pools each free
+    to saturate the box independently.
+    """
+    return _executor.submit(func, *args, **kwargs)
+
+
 def submit_job(func: Callable, *args, **kwargs) -> str:
     job_id = uuid.uuid4().hex[:12]
     _store(job_id, {

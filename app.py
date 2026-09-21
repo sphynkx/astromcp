@@ -7,6 +7,7 @@ logic itself - that all lives under engine/, so it can be read, tested, and
 modified independently of the MCP transport plumbing.
 """
 
+import asyncio
 import logging
 import urllib.parse
 from typing import Optional, List, Dict, Any
@@ -29,7 +30,7 @@ from engine import photo_fetch
 from engine.geocode import GeocodeError
 from engine.pipeline import run_rectification_pipeline
 from engine.jobs import (submit_job, get_job, get_job_status, get_job_section,
-                         iter_job_sections, list_jobs, delete_job)
+                         iter_job_sections, list_jobs, delete_job, run_blocking)
 
 logging.basicConfig(level=getattr(logging, config.LOG_LEVEL, logging.INFO))
 logger = logging.getLogger("astromcp")
@@ -903,7 +904,8 @@ async def astro_report(request: Request) -> JSONResponse:
     try:
         params = _parse_astro_query(q)
         lots_param = q.get("lots")
-        result = public_api.build_full_report(
+        result = await asyncio.wrap_future(run_blocking(
+            public_api.build_full_report,
             **params,
             include_aspects=(q.get("no_aspects") != "1"),
             include_house_cusp_aspects=(q.get("no_house_cusp_aspects") != "1"),
@@ -911,7 +913,7 @@ async def astro_report(request: Request) -> JSONResponse:
             include_arabic_parts=(q.get("no_parts") != "1"),
             include_jones_figure=(q.get("no_jones") != "1"),
             lots=[s.strip() for s in lots_param.split(",")] if lots_param else None,
-        )
+        ))
         return JSONResponse(result)
 
     except GeocodeError as e:
@@ -953,22 +955,29 @@ async def astro_chart_svg(request: Request) -> Response:
     try:
         params = _parse_astro_query(q)
         lots_param = q.get("lots")
-        report = public_api.build_full_report(
-            **params,
-            include_aspects=True,
-            include_house_cusp_aspects=True,
-            include_fixed_stars=True,
-            include_arabic_parts=(q.get("no_parts") != "1"),
-            include_jones_figure=(q.get("jones") == "1"),
-            lots=[s.strip() for s in lots_param.split(",")] if lots_param else None,
-        )
-        photo_data_uri = photo_fetch.fetch_photo_as_data_uri(q.get("photo_url"))
-        svg_text = svg_chart.build_natal_chart_svg(
-            report,
-            person_name=q.get("name"),
-            place_label=q.get("place"),
-            photo_url=photo_data_uri,
-        )
+
+        def _build_svg():
+            report = public_api.build_full_report(
+                **params,
+                include_aspects=True,
+                include_house_cusp_aspects=True,
+                include_fixed_stars=True,
+                include_arabic_parts=(q.get("no_parts") != "1"),
+                include_jones_figure=(q.get("jones") == "1"),
+                lots=[s.strip() for s in lots_param.split(",")] if lots_param else None,
+            )
+            photo_data_uri = photo_fetch.fetch_photo_as_data_uri(q.get("photo_url"))
+            return svg_chart.build_natal_chart_svg(
+                report,
+                person_name=q.get("name"),
+                place_label=q.get("place"),
+                photo_url=photo_data_uri,
+            )
+
+        # One offloaded unit rather than three separate hops: report ->
+        # photo fetch (network I/O - its own reason to not block the
+        # loop) -> SVG render all happen in the same worker thread.
+        svg_text = await asyncio.wrap_future(run_blocking(_build_svg))
         headers = {}
         filename = q.get("filename")
         if filename:
@@ -1308,13 +1317,75 @@ async def astro_jobs_section(request: Request) -> JSONResponse:
 
 @mcp.custom_route("/astro/rectify", methods=["POST"])
 async def astro_rectify(request: Request) -> JSONResponse:
-    """POST /astro/rectify — synchronous pipeline (same body as MCP tool)."""
+    """POST /astro/rectify — synchronous pipeline (same body as MCP tool).
+    "Synchronous" describes the HTTP contract (caller waits for the full
+    result in one response) — the actual computation still runs via
+    run_blocking so it doesn't freeze the server for everyone else while
+    this one caller waits. See run_blocking's docstring in engine/jobs.py."""
     try:
         body = await request.json()
-        result = run_rectification_pipeline(**body)
+        result = await asyncio.wrap_future(
+            run_blocking(run_rectification_pipeline, **body))
         return JSONResponse(result)
     except Exception as e:
         logger.exception("REST /astro/rectify failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@mcp.custom_route("/astro/movements_scan", methods=["POST"])
+async def astro_movements_scan(request: Request) -> JSONResponse:
+    """
+    POST /astro/movements_scan — REST wrapper around the
+    rectif_movements_scan MCP tool, for plain HTTP callers (batch
+    scripts) that don't want to speak the MCP streamable-http protocol
+    for something this cheap (one event, not the full pipeline).
+    Same JSON body shape as the MCP tool's parameters.
+
+    Routed through run_blocking, not called directly: this call is not
+    actually cheap in wall-clock terms (a full-day sweep at fine
+    step_minutes is tens of seconds to low minutes of kerykeion/
+    pyswisseph work), and calling it directly inside this async def
+    would block the whole event loop for that whole duration — see
+    run_blocking's docstring in engine/jobs.py for how this was found.
+    """
+    try:
+        body = await request.json()
+        result = await asyncio.wrap_future(
+            run_blocking(tools.rectif_movements_scan, **body))
+        return JSONResponse(result)
+    except Exception as e:
+        logger.exception("REST /astro/movements_scan failed")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@mcp.custom_route("/astro/rectify_async", methods=["POST"])
+async def astro_rectify_async(request: Request) -> JSONResponse:
+    """
+    POST /astro/rectify_async — async REST equivalent of the
+    rectif_pipeline_start MCP tool. Same JSON body as /astro/rectify,
+    but returns {job_id, status: "running"} immediately instead of
+    blocking. Poll via the existing /astro/jobs/<id>/status and
+    /astro/jobs/<id>/<section> endpoints.
+
+    Already safe as originally written: submit_job hands the actual
+    work to its own background ThreadPoolExecutor and returns right
+    away — this route was never the source of the event-loop-blocking
+    bug the other routes had (see run_blocking's docstring).
+    """
+    try:
+        body = await request.json()
+        if not body.get("events"):
+            return JSONResponse(
+                {"error": "events list is required and must be non-empty"},
+                status_code=400,
+            )
+        job_id = submit_job(run_rectification_pipeline, **body)
+        logger.info("REST pipeline job %s submitted (%d events)",
+                    job_id, len(body["events"]))
+        return JSONResponse({"job_id": job_id, "status": "running",
+                              "events_count": len(body["events"])})
+    except Exception as e:
+        logger.exception("REST /astro/rectify_async failed")
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
