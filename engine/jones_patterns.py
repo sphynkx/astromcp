@@ -80,7 +80,31 @@ MIDPOINT_ORB = 30.0
 # enough to cover a real conjunction but nowhere near half of the
 # 120 deg+ gap a handle sits inside, so it can't accidentally admit a
 # genuine two-pole split.
-HANDLE_CLUSTER_ORB = 20.0
+#
+# WIDENED from an initial 9 deg (mirroring OPPOSITION_ORB's own history
+# above) after the Hensel twins (7.03.1990, conjoined - Abigail and
+# Brittany, a single natal chart by necessity): Jupiter (91.0 deg) and
+# Moon (122.8 deg) sit 31.8 deg apart, opposite an 8-planet main mass
+# (Pluto through Sun, occupied span 119.2 deg) - the two OUTER sub-gaps
+# either side of this Jupiter/Moon pair are 104.1 and 104.9 deg,
+# essentially equal, which is the actual signature of one widened
+# handle roughly bisecting the main gap (matching this module's own
+# _handle_is_opposite check, which already passed for this pair before
+# this change - only the clustering check was failing it). A true Stool
+# would instead need the two handle planets themselves roughly opposite
+# each other (~180 deg apart, per the module docstring's own Stool
+# definition), splitting the gap at its EDGES rather than sitting
+# together near its middle - 31.8 deg is nowhere close to that, so this
+# widening doesn't blur the Sling/Stool distinction, it just recognizes
+# that "one clustered mass" doesn't have to be as tight as a classical
+# conjunction. Confirmed via direct classify_jones_figure() run on this
+# chart's real computed longitudes: was "splash" (fell through the old
+# 20 deg check entirely), correctly "sling" once widened. 35 deg gives
+# ~3 deg of real-world slack beyond this case, same margin-adding style
+# as OPPOSITION_ORB's own second widening above - not sourced to a
+# specific number (no source gives one for handle width either), but
+# checked against this real chart rather than picked arbitrarily.
+HANDLE_CLUSTER_ORB = 35.0
 
 
 def _sorted_gaps(longitudes: Dict[str, float]) -> List[Tuple[float, str, str]]:
