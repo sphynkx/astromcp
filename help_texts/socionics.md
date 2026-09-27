@@ -24,7 +24,9 @@ visual/vocal/contextual description, the material itself - a transcript,
 an autobiography excerpt, an interview, correspondence, whatever's
 available) - never invented, assumed, or carried over from a different
 person's typing. This file is the fixed method applied to whatever
-per-request material and framing the user provides.
+per-request material and framing the user provides. If the material is a
+video this service has no way to watch directly, see
+`help("video_description")` for how it gets turned into text first.
 
 ## Core principle: TIM is fixed, behavior is not
 

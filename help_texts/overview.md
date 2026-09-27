@@ -111,7 +111,10 @@ and `help("horary")`. Socionics/Model A typing (a different discipline
 entirely, layered on top of this service's optional RAG search rather than
 its astrological primitives) has its own methodology - see
 `help("socionics")` before doing any typing work; same "binding procedure,
-re-read every session" contract as the astrology topics. If you're doing
+re-read every session" contract as the astrology topics.
+`help("video_description")` is a companion to it - this service can't
+watch video directly, so that topic covers turning one into text first via
+an external model, for use as socionics typing material. If you're doing
 something else with this service (synastry, a plain natal reading, transit
 forecasting) and a dedicated help topic doesn't exist yet, use
 `rectif_chart` / `rectif_technique` directly - they're general-purpose -
