@@ -68,6 +68,14 @@ far).
   not for an individual person's rectification result, which belongs in
   your own chat-side memory instead. Append-only by design - see the
   tool's own docstring before assuming you can edit or delete an entry.
+- `rag_search` - semantic search over a document corpus indexed with the
+  project's `build_index.py` (optional, off until a corpus is actually
+  built - see README.md's "RAG document search" section). Generic: has
+  no built-in knowledge of what any given corpus is about. Returns
+  matching chunks for you to reason over, not a generated answer. See
+  `help("socionics")` for the one concrete use this was built for so
+  far (typing) - nothing about this tool itself is socionics-specific,
+  it applies equally to any other corpus/topic that gets indexed later.
 - `ping` - connectivity check.
 
 This service is also reachable outside the MCP tool interface, via two
@@ -99,12 +107,16 @@ thoroughly this one gets worked.
 ## Other topics
 
 Rectification and horary are covered in depth - see `help("rectification")`
-and `help("horary")`. If you're doing something else with this service
-(synastry, a plain natal reading, transit forecasting) and a dedicated
-help topic doesn't exist yet, use `rectif_chart` / `rectif_technique`
-directly - they're general-purpose - and treat the rectification
-methodology notes as background context where relevant (e.g. the
-timezone/coordinate advice applies universally).
+and `help("horary")`. Socionics/Model A typing (a different discipline
+entirely, layered on top of this service's optional RAG search rather than
+its astrological primitives) has its own methodology - see
+`help("socionics")` before doing any typing work; same "binding procedure,
+re-read every session" contract as the astrology topics. If you're doing
+something else with this service (synastry, a plain natal reading, transit
+forecasting) and a dedicated help topic doesn't exist yet, use
+`rectif_chart` / `rectif_technique` directly - they're general-purpose -
+and treat the rectification methodology notes as background context where
+relevant (e.g. the timezone/coordinate advice applies universally).
 
 Call `help()` with no arguments (or an unrecognized topic) to get this
 overview again, including a live-updated list of whatever topics exist at
