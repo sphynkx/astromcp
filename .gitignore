@@ -38,3 +38,8 @@ help_texts/session_notes.md
 
 celerybeat-schedule
 
+
+data/*
+!data/.gitempty
+rag_data/*
+!rag_data/.gitempty
