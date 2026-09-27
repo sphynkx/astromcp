@@ -12,6 +12,7 @@ from typing import Optional, List, Dict, Any
 from . import config
 from . import horary
 from . import lots
+from . import rag
 from . import houses as houses_module
 from .chart import build_subject, serialize_subject, natal_points_dict, subject_raw, resolve_fixed_offset_minutes
 from .aspects import compute_aspects
@@ -860,4 +861,41 @@ def rectif_note_append(text: str, tag: str = "") -> Dict[str, Any]:
         return append_note(text, tag)
     except Exception as e:
         logger.exception("rectif_note_append failed")
+        return {"error": str(e)}
+
+
+def rag_search(
+    query: str,
+    topic: Optional[str] = None,
+    top_k: Optional[int] = None,
+    include_methodology: bool = True,
+) -> Dict[str, Any]:
+    try:
+        if not rag.load():
+            return {
+                "available": False,
+                "reason": rag.load_error(),
+            }
+        chunks = rag.retrieve(query, top_k=top_k, topic=topic,
+                               include_methodology=include_methodology)
+        if config.CONSOLE_RESULT_PREVIEW:
+            logger.info("  rag_search: %d chunk(s) for query=%r topic=%r",
+                        len(chunks), query, topic)
+        return {
+            "available": True,
+            "query": query,
+            "topic_filter": topic,
+            "results": [
+                {
+                    "id": c.get("id"),
+                    "text": c.get("text"),
+                    "topic": c.get("topic"),
+                    "is_methodology": bool(c.get("always_include")),
+                }
+                for c in chunks
+            ],
+            "topics_indexed": rag.list_topics(),
+        }
+    except Exception as e:
+        logger.exception("rag_search failed")
         return {"error": str(e)}

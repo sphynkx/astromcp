@@ -114,3 +114,22 @@ PHOTO_ALLOWED_PREFIXES = [
 ]
 PHOTO_FETCH_TIMEOUT_SECONDS = _get_float("ASTROMCP_PHOTO_FETCH_TIMEOUT_SECONDS", 4.0)
 PHOTO_FETCH_MAX_BYTES = _get_int("ASTROMCP_PHOTO_FETCH_MAX_BYTES", 3 * 1024 * 1024)  # 3 MB
+
+# --- RAG document search (optional) ---
+# Ported from github.com/sphynkx/ycplt's build_index.py/utils/rag.py design
+# (FAISS + sentence-transformers, one index per rag_data/<topic> corpus).
+# Absent entirely here is ycplt's own LLM-prompt-construction side
+# (build_prompt, always-include reasoning-mode prompting) - rag_search
+# just returns retrieved chunks to the caller (Claude, via MCP) and lets
+# it do its own reasoning; there's no local model here to prompt.
+RAG_DATA_DIR = _get_str("ASTROMCP_RAG_DATA_DIR", "rag_data")
+RAG_INDEX_DIR = _get_str("ASTROMCP_RAG_INDEX_DIR", "data/rag_index")
+RAG_INDEX_CONCURRENCY = _get_int("ASTROMCP_RAG_INDEX_CONCURRENCY", 4)
+# paraphrase-multilingual-MiniLM-L12-v2 - same default ycplt uses; handles
+# Russian (and mixed Russian/English) source text well, which matters for
+# a socionics corpus specifically.
+RAG_EMBED_MODEL = _get_str("ASTROMCP_RAG_EMBED_MODEL", "paraphrase-multilingual-MiniLM-L12-v2")
+RAG_TOP_K = _get_int("ASTROMCP_RAG_TOP_K", 3)
+# Cap on always-include (methodology-doc) expansion per query - see
+# engine/rag.py's retrieve() docstring for why this exists at all.
+RAG_ALWAYS_INCLUDE_MAX_CHARS = _get_int("ASTROMCP_RAG_ALWAYS_INCLUDE_MAX_CHARS", 28000)

@@ -1485,6 +1485,51 @@ def rectif_note_append(text: str, tag: str = "") -> Dict[str, Any]:
     return tools.rectif_note_append(text, tag)
 
 
+@mcp.tool()
+def rag_search(
+    query: str,
+    topic: Optional[str] = None,
+    top_k: Optional[int] = None,
+    include_methodology: bool = True,
+) -> Dict[str, Any]:
+    """
+    Semantic search over a document corpus indexed by build_index.py (see
+    README.md's "RAG document search" section) - FAISS + sentence-
+    transformers, ported from github.com/sphynkx/ycplt's design. Generic:
+    this tool has no built-in knowledge of what the corpus is ABOUT (it
+    could be socionics theory, rectification methodology references, or
+    anything else) - it only searches whatever's actually been indexed
+    under rag_data/.
+
+    Returns the matching chunks themselves (id/text/topic/is_methodology),
+    NOT a generated answer - reason over them yourself the way you would
+    over any other tool's factual result.
+
+    topic: scope the search to one rag_data/<topic> subfolder (e.g.
+    "socionics") instead of the whole corpus. Omit to search everything
+    indexed. See the "available"/"topics_indexed" fields in the result if
+    you're unsure what topics currently exist.
+
+    include_methodology (default true): a document named
+    "*_methodology.txt/.pdf" is treated specially by build_index.py - its
+    chunks are added to the result whenever ANY other chunk from the same
+    topic is retrieved, regardless of that document's own similarity rank
+    against `query`. This exists because a methodology document describes
+    HOW to reason over facts, not a fact itself, so it often won't
+    resemble a specific query closely enough to surface through plain
+    similarity search alone - if a topic has such a document (the
+    corpus's author would know), you almost always want it included
+    alongside whatever specific facts matched. Set false only if you
+    specifically want raw fact-chunks with no methodology mixed in.
+
+    If no index has been built yet (or the RAG dependencies aren't
+    installed), returns {"available": false, "reason": "..."} rather than
+    an error - this is an optional subsystem, same philosophy as PDF
+    export or photo embedding elsewhere in this project.
+    """
+    return tools.rag_search(query, topic, top_k, include_methodology)
+
+
 if __name__ == "__main__":
     try:
         mcp.run(transport="streamable-http")

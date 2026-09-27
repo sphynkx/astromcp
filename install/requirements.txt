@@ -12,3 +12,16 @@ timezonefinder>=6.5.0  # offline coordinates -> modern IANA timezone lookup
 Babel>=2.14.0          # offline CLDR country-name lookup (engine/geocode.py's
                        # Russian country-name support - resolve_country_code)
 redis>=5.0.0           # persistent job storage (optional; in-memory fallback if unavailable)
+
+# --- Added for RAG document search (optional) - engine/rag.py, build_index.py ---
+# Core (required for any of this):
+faiss-cpu>=1.7.4
+sentence-transformers>=2.2.2
+numpy>=1.24.0
+# Format-specific (only needed for the corresponding source document type -
+# see build_index.py's own module docstring for exactly what each covers):
+pypdf>=3.0.0             # .pdf sources (text layer; scanned pages OCR'd via tesseract instead)
+charset-normalizer>=3.0.0  # auto-detects .txt/.html encoding (cp1251, koi8-r, ...)
+beautifulsoup4>=4.12.0    # .html/.htm sources
+striprtf>=0.0.26          # .rtf sources (pure Python, no system tool needed)
+patool>=1.12              # .rar/.arj/.7z source archives (needs a matching system tool - see README.md)

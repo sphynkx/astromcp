@@ -129,6 +129,7 @@ modified, or reused independently.
 | `horary_chart` | Builds and judges a horary chart (a question asked at a specific moment/place) - radicality, significators, dignity, reception, void-of-course Moon, translation/collection of light, prohibition/frustration/refranation, Yes/No verdict. See `help("horary")` |
 | `help` | Reads a methodology/usage guide from `help_texts/*.md` - see below |
 | `rectif_note_append` | Appends a dated note to `help_texts/session_notes.md`, an append-only session-notes log for the LLM client itself - not curated methodology, gitignored rather than committed, and no edit/delete tool exists for it by design |
+| `rag_search` | Semantic search over a document corpus you've indexed with `build_index.py` (optional - see "RAG document search" below). Generic: has no built-in knowledge of what the corpus is about |
 | `ping` | Connectivity test |
 
 Full parameter reference is in the docstrings in `app.py` (visible to the
@@ -401,6 +402,116 @@ Default MCP endpoint: `http://0.0.0.0:8765/mcp`
     systemctl enable astromcp
     systemctl start astromcp
     systemctl status astromcp
+
+## RAG document search (optional)
+
+Lets `rag_search` (see "Tools exposed" above) do semantic search over your
+own document corpus - grounds Claude's answers in specific indexed sources
+instead of its general training knowledge, for a narrow/specialist topic
+where that matters. Entirely optional and independent of every astrology
+feature above; skip this section if you don't need it.
+
+Ported from [github.com/sphynkx/ycplt](https://github.com/sphynkx/ycplt)'s
+`build_index.py`/`utils/rag.py` design (FAISS + sentence-transformers, one
+index per topic corpus) - that project's own README has more background on
+the same mechanism if you want it, though everything needed to use it here
+is below.
+
+### 1. System packages
+
+Cover ingestion of every supported source document format (skip any you
+know you won't need - a missing tool just means that one format is skipped
+with a warning at index-build time, not a hard failure):
+
+```
+# Fedora
+dnf install gcc cmake python-devel antiword p7zip p7zip-plugins unrar-free \
+  djvulibre poppler-utils tesseract tesseract-langpack-rus chmlib
+cd /tmp && git clone https://github.com/val-khokhlov/ha && cd ha
+cmake . -DCMAKE_POLICY_VERSION_MINIMUM=3.5 && make all
+cp ha /usr/local/bin
+```
+
+```
+# Debian/Ubuntu
+apt install gcc cmake python3-dev antiword p7zip-full unrar \
+  djvulibre-bin poppler-utils tesseract-ocr tesseract-ocr-rus libchm-bin
+# (building "ha" from source is the same either way - it isn't packaged for either distro)
+```
+
+What each is for: `antiword` reads legacy binary `.doc`; `p7zip`/`unrar-free`
+(or `p7zip-full`/`unrar` on Debian) plus `patool` (Python side, below) read
+`.7z`/`.rar`/`.arj` archives; `djvulibre` (`djvutxt`/`ddjvu`/`djvused`) reads
+`.djvu`/`.djv` scans, falling back to OCR via `tesseract` when a scan has no
+embedded text layer; `poppler-utils` (`pdftoppm`) renders scanned PDF pages
+to images for that same OCR fallback; `chmlib` (`extract_chmLib`) reads
+`.chm` help files; `ha` is a modern rebuild of the dead-since-the-90s `HA`
+DOS archiver, for `.ha` source archives specifically (skipped gracefully if
+you never build it - genuinely rare format). `.txt`/`.html`/`.rtf`/`.pdf`
+(text layer)/`.zip` need no system tool at all, only the Python packages
+below.
+
+### 2. Python packages
+
+```
+pip install -r install/requirements.txt
+```
+
+Already includes everything RAG needs (added to the same file used for step
+1's install) - `faiss-cpu`, `sentence-transformers`, `numpy` (core,
+required), plus `pypdf`/`charset-normalizer`/`beautifulsoup4`/`striprtf`/
+`patool` (one per optional source format, matching the system tools above).
+
+### 3. Preparing a document corpus
+
+Put source files under `rag_data/` (created automatically on first
+`build_index.py` run if it doesn't exist yet), organized into topic
+subfolders - `rag_data/<topic>/...`. Everything directly in `rag_data/`
+itself, with no subfolder, forms its own "root" corpus (`topic=None`).
+Supported source formats: `.txt`, `.html`/`.htm`, `.rtf`, `.pdf`, `.doc`,
+`.djvu`/`.djv`, `.chm`, and `.zip`/`.rar`/`.arj`/`.7z`/`.ha` archives
+(extracted and read recursively, nested archives included, up to a small
+depth limit) - see `build_index.py`'s own module docstring for exactly how
+each is handled (encoding detection, OCR fallback conditions, etc.).
+
+**Methodology documents**: name a file `<anything>_methodology.txt` (or
+`.pdf`) and it's always included in `rag_search`'s result whenever any
+other chunk from the same topic is retrieved, regardless of its own
+similarity ranking against the query - see `engine/rag.py`'s `retrieve()`
+docstring for why (short version: a document describing HOW to reason over
+facts rarely resembles a specific question closely enough to rank in
+ordinary similarity search on its own).
+
+### 4. Building the index
+
+```
+python3 build_index.py                 # build every corpus found under rag_data/
+python3 build_index.py <topic>         # build only rag_data/<topic>/
+python3 build_index.py root            # build only the loose files directly in rag_data/
+python3 build_index.py <path/to/folder>  # build only that folder as its own corpus
+```
+
+Writes one `faiss_index.bin`+`meta.pkl` pair per corpus under
+`ASTROMCP_RAG_INDEX_DIR` (default `data/rag_index/<topic>/`). Re-run for a
+single topic any time only that topic's source documents changed - rebuilds
+never touch any other corpus's index or re-read/re-OCR documents that
+haven't changed. Reading a corpus is concurrent (bounded by
+`ASTROMCP_RAG_INDEX_CONCURRENCY`, default 4) across documents and, for
+scanned/OCR'd pages, across pages within one document too - this is what
+actually matters for wall-clock time on a real corpus (most of it is spent
+waiting on external OCR/extraction processes, not on Python itself).
+
+`rag_search` (restart the service after building or rebuilding an index, so
+it picks up the fresh corpus/corpora - loaded lazily on first call, cached
+after that) needs no further setup once an index exists:
+
+```python
+rag_search(query="что символизирует 4-я функция в Модели А", topic="socionics")
+```
+
+Returns the matching chunks (text + which document/topic each came from),
+not a generated answer - reasoning over them is the caller's (Claude's) own
+job, same as with any other tool's factual result.
 
 ## Hosting / reverse proxy setup
 
