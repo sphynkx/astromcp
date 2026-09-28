@@ -375,6 +375,13 @@ horary-specific point) are computed via the existing Lots framework
     pip install --upgrade pip
     pip install -r install/requirements.txt
 
+Later, to update pip and the modules after `requirements.txt` changes,
+`install/pipinstall.sh` does the same three steps in one go (activates
+`../.venv`, upgrades pip, installs `requirements.txt`, deactivates) - run it
+from inside `install/`: `cd install && sh pipinstall.sh`. It uses `source`,
+which is a bash feature: fine wherever `/bin/sh` is bash (Fedora), but on
+Debian/Ubuntu (`/bin/sh` is dash) run it as `bash pipinstall.sh`.
+
 Place `app.py` and the `engine/` directory under `/opt/astromcp/`.
 
 Optionally copy `install/.env.example` to `.env` **in the project root**
@@ -530,7 +537,7 @@ free-tier-safe values (sequential, 3 attempts, 8 h/day of video). Finished
 descriptions and per-day counters live in Redis when configured (same
 fallback as jobs: in-memory, lost on restart).
 
-Quick check without Claude: `python3 test_gemini_video.py <url>` (same code,
+Quick check without Claude: `python3 tests/test_gemini_video.py <url>` (same code,
 same cache and budget). Logic tests, no network needed:
 `python3 -m unittest discover -s tests -v`.
 

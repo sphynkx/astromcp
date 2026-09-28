@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """
-test_gemini_video.py
+tests/test_gemini_video.py
 
-Quick synchronous way to run engine/gemini_client.run_batch on the server
+Manual live check, not a unit test (unittest discovery imports this file but
+finds nothing to run): runs engine/gemini_client.run_batch on the server
 without going through Claude/MCP - for trying a new prompt wording, a new
-video, or group_size. The permanent path is the describe_videos_* MCP tools;
-this uses the same code, the same cache and the same daily budget.
+video, or group_size. Same code, same cache and same daily budget as the
+describe_videos_* MCP tools. The offline logic tests are
+tests/test_gemini_batch.py.
 
-Usage:
-    python3 test_gemini_video.py [--group N] [--no-probe] [--refresh] [--model NAME] url [url ...]
+Usage (from anywhere; .env is read from the project root):
+    python3 tests/test_gemini_video.py [--group N] [--no-probe] [--refresh] [--model NAME] url [url ...]
 
 Each finished video's text is written to gemini_video_<timestamp>_<unit>.md
-(the store keeps a copy too - a second run of the same URLs is a cache hit
-and calls Gemini not at all).
+in the current directory (the store keeps a copy too - a second run of the
+same URLs is a cache hit and doesn't call Gemini at all).
 """
 
 import argparse
@@ -20,9 +22,8 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from engine import gemini_client as gc  # noqa: E402
 
@@ -30,6 +31,11 @@ DEFAULT_VIDEO_URL = "https://www.youtube.com/watch?v=C5EKF-HaucM"
 
 
 def main():
+    # Loaded here, not at import time, so merely importing this module (as
+    # unittest discovery does) never touches the environment.
+    from dotenv import load_dotenv
+    load_dotenv(PROJECT_ROOT / ".env")
+
     ap = argparse.ArgumentParser()
     ap.add_argument("urls", nargs="*")
     ap.add_argument("--group", type=int, default=1)
@@ -39,8 +45,8 @@ def main():
     args = ap.parse_args()
 
     if not gc.is_configured():
-        print("GEMINI_API_KEY (or GOOGLE_API_KEY) is not set - check .env and the "
-              "working directory python-dotenv searches from.", file=sys.stderr)
+        print("GEMINI_API_KEY (or GOOGLE_API_KEY) is not set - check "
+              f"{PROJECT_ROOT / '.env'}", file=sys.stderr)
         sys.exit(1)
 
     urls = args.urls or [DEFAULT_VIDEO_URL]
