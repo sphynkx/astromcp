@@ -94,10 +94,49 @@ rules - if anything, a good description makes those rules easier to apply,
 since gestures/tone/setting are now actually present in the material
 instead of missing entirely.
 
-## Open question, not yet resolved
+## Getting Gemini's output into this service
 
-The user's own sketch: an external service that calls Gemini (or similar)
-with this prompt for a given video and returns the result over MCP -
-not yet built, not yet designed in detail (how results get delivered,
-whether as a new tool here or some other mechanism). Revisit this section
-once that shape is actually decided, rather than speculating further here.
+`describe_videos_start(youtube_urls, prompt=None, model=..., combine=True)`
+/ `describe_videos_result(job_id, video_index=None)` (app.py) - submit_job-
+backed, same async pattern as `rectif_pipeline_start`, since a real call
+(especially several videos combined) can run for minutes. `prompt` can be
+omitted to use this file's own prompt above automatically
+(`engine/gemini_client.default_prompt()` reads it straight from this
+file's fenced block - so editing the prompt here is the only place it
+ever needs to change).
+
+**Multiple videos of the same person** (the common real case - a batch of
+shorter videos across different settings/moods/times, for one composite
+picture) go in one `youtube_urls` list. `combine=True` (default) sends
+them all in a SINGLE Gemini request - the tool automatically appends an
+instruction telling Gemini to keep each video in its own clearly
+separated, explicitly numbered section rather than blending the material
+together. This also matters for Gemini's own daily call-count quota, not
+just convenience - fewer, larger requests spend that budget more slowly
+than one request per video.
+
+`combine=False` instead sends one request per video and keeps each
+result separate (`describe_videos_result`'s `video_index` param reads one
+at a time, without pulling a whole large batch into one response) - the
+fallback if a large combined batch turns out to degrade in practice.
+Whether it actually does is genuinely untested as of this writing: Gemini
+supports multiple videos in one request in general, but nobody here has
+yet pushed a few dozen long videos through combine=True and checked
+whether quality holds up as well as it does on one video at a time. If
+you notice degradation (sections getting thinner, videos blending despite
+the instruction, anything that reads like it's running out of room) -
+that's the signal to switch to combine=False for that batch, and worth a
+`rectif_note_append` note either way once you have a real answer.
+
+## Known SDK quirk, deliberately not worked around
+
+Every direct `generate_content()` call prints an informational "automatic
+function calling... not recommended, use Chat instead" notice. Harmless
+here - nothing in this integration ever passes `tools=`, so there is
+nothing for AFC to act on regardless of the notice, and `google-genai`'s
+own issue tracker documents sharp edges from explicitly disabling AFC
+(a second warning if `maximum_remote_calls` isn't also set; state that
+bleeds across calls in mixed tool/no-tool sessions) for a integration
+that was never going to use tools in the first place. Silence it locally
+in your own environment if the console noise bothers you; not worth
+carrying the complexity in the shared code for zero behavioral benefit.

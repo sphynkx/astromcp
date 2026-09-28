@@ -15,6 +15,7 @@ redis>=5.0.0           # persistent job storage (optional; in-memory fallback if
 
 # --- Added for RAG document search (optional) - engine/rag.py, build_index.py ---
 # Core (required for any of this):
+google-genai>=0.3.0          # engine/gemini_client.py - video description via Gemini (spike/test phase)
 faiss-cpu>=1.7.4
 sentence-transformers>=2.2.2
 numpy>=1.24.0

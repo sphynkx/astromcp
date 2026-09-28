@@ -1,13 +1,12 @@
 # Socionics typing methodology (Model A)
 
-Reworked from the user's own working prompt (25 years of practical
-socionics experience, refined through real use with another model before
-this project existed) into this service's `help_texts/` conventions. This
-is a new methodology document, not yet battle-tested through many real
-typing sessions the way `help("rectification")` has been - treat it as
-binding procedure regardless, but expect it to grow real-incident
-annotations over time the same way that document did (see "How this
-document should evolve" at the end).
+Reworked from the user's own working prompt into this service's
+`help_texts/` conventions. This is a new methodology document, not yet
+battle-tested through many real typing sessions the way
+`help("rectification")` has been - treat it as binding procedure
+regardless, but expect it to grow real-incident annotations over time the
+same way that document did (see "How this document should evolve" at the
+end).
 
 ## How to use this document - read this section first, every time
 
@@ -147,11 +146,13 @@ than admitting the material didn't settle the question.
 This isn't a fallback for when the method fails - it's a designed part
 of it, for two concrete reasons:
 
-- **The user has 25 years of hands-on socionics practice and a
-  genuinely trained eye for this specific task.** Their judgment on a
-  contested read is not a rubber stamp to route around - it's the more
-  reliable signal on exactly the calls this document can't fully
-  reduce to explicit rules.
+- **The user's own read on a contested call is not a rubber stamp to
+  route around - it's genuinely informative signal, gathered from
+  context this document has no access to** (how the person carries
+  themselves outside the specific clip in question, prior sessions with
+  the same subject, domain knowledge about the field they work in).
+  Treat it as evidence to weigh, the same way a specific passage in the
+  material is evidence to weigh - not as a formality to get through.
 - **Some real typing judgments happen at an intuitive, gestalt level
   that doesn't cleanly decompose into the discrete textual evidence a
   language model reasons over.** A rule-based read from text alone can
