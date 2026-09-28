@@ -1536,91 +1536,88 @@ def describe_videos_start(
     youtube_urls: List[str],
     prompt: Optional[str] = None,
     model: str = gemini_client.DEFAULT_MODEL,
-    combine: bool = True,
+    group_size: int = 1,
+    probe: bool = True,
+    refresh: bool = False,
 ) -> Dict[str, Any]:
     """
-    Submit one or more YouTube videos to Gemini for a detailed text
-    description (this service has no native video/audio understanding of
-    its own - this is the workaround, see help("video_description") for
-    the full rationale and the actual prompt used by default). Returns
-    {"job_id": ..., "status": "running"} immediately - poll with
-    describe_videos_result(job_id). A real call, especially several
-    videos combined, can run for minutes; this is submit_job-backed
-    (engine/jobs.py) exactly like rectif_pipeline_start, for the same
-    reason - never call gemini_client directly from a synchronous
-    context.
+    Submit YouTube videos to Gemini for a detailed text description (this
+    service has no native video/audio understanding - see
+    help("video_description") for why, the default prompt, and the limits).
+    Returns {"job_id", "status": "running"} at once; poll with
+    describe_videos_result(job_id). A batch can run for hours.
 
-    prompt: omit to use help_texts/video_description.md's own prompt
-    (the normal case - that file is the maintained, current version).
-    Only pass your own prompt for a deliberate one-off deviation; it
-    won't be saved back to the methodology file.
+    One request per video by default (group_size=1): a long video's
+    description is ~1 KB of text per minute of video, so long videos can't
+    share a response. group_size 2..10 is for SHORT clips only (10 is
+    Gemini's per-request video cap).
 
-    combine (default true): all videos in ONE request when there's more
-    than one, with an automatic instruction telling Gemini to keep each
-    video's description in its own clearly separated section rather than
-    blending them - see gemini_client.describe_videos's own docstring for
-    when you'd want combine=False instead (untested risk: a large batch
-    of long videos combined into one request may hit context-window
-    pressure - no confirmed threshold yet, compare against combine=False
-    if a combined result looks degraded).
+    Resumable and cheap to repeat: every finished video is stored (30 days,
+    compressed) and re-submitting the same URLs returns finished ones as
+    "cached" without calling Gemini - that is also how you continue a batch
+    that was stopped (Gemini busy, daily quota) and how you recover the
+    index after the job record itself expires (3 days).
 
-    A single youtube_urls entry behaves the same regardless of `combine`.
+    A batch stops itself instead of burning quota: a failed probe, several
+    consecutive failures, an exhausted daily quota, or the local daily
+    budget (see describe_videos_budget) end it early, and everything not
+    attempted is reported as "deferred" - re-submit later.
+
+    probe (default true): with 2+ videos left to run, one tiny real request
+    is sent first; if the model is refusing right now, no video is touched.
+    It costs one request from the daily budget. refresh: ignore cached
+    results. prompt: omit to use help_texts/video_description.md's prompt.
     """
     prompt = prompt or gemini_client.default_prompt()
-    job_id = submit_job(gemini_client.describe_videos, youtube_urls, prompt, model, combine)
-    logger.info("REST describe_videos job %s submitted (%d video(s), combine=%s)",
-                job_id, len(youtube_urls), combine)
-    return {"job_id": job_id, "status": "running", "videos_count": len(youtube_urls)}
+    job_id = submit_job(gemini_client.run_batch, youtube_urls, prompt, model,
+                        group_size, probe, refresh)
+    logger.info("describe_videos job %s submitted (%d url(s), group_size=%s)",
+                job_id, len(youtube_urls), group_size)
+    return {"job_id": job_id, "status": "running", "urls_count": len(youtube_urls)}
 
 
 @mcp.tool()
-def describe_videos_result(job_id: str, video_index: Optional[int] = None) -> Dict[str, Any]:
+def describe_videos_result(
+    job_id: str,
+    unit_index: Optional[int] = None,
+    offset: int = 0,
+    limit: Optional[int] = None,
+) -> Dict[str, Any]:
     """
-    Retrieve a describe_videos_start job's result.
+    Read a describe_videos_start job.
 
-    Job not done yet: {"status": "running"|"error", ...} - no payload.
+    Still running: status + "progress" (units finished/failed, phase,
+    aborted reason if it stopped early).
 
-    Job done, mode == "combined" (single video, or multiple with
-    combine=True): full result inline - {"available", "text", "model",
-    "youtube_urls"}. `video_index` is ignored here; there is no way to
-    split one combined Gemini response back into per-video pieces after
-    the fact (the "## Video N" headers describe_videos_start asked
-    Gemini to use are a reading aid, not something this tool parses for
-    you - if a combined batch is large enough that this matters, rerun
-    with combine=False instead and use video_index below).
+    Done: a batch with several units returns an INDEX first - per unit
+    {unit_index, youtube_urls, status (done|cached|failed|deferred),
+    text_length | reason} plus the batch summary and "aborted" - so you can
+    see what exists before reading anything. A one-unit batch skips the
+    index and returns the text directly.
 
-    Job done, mode == "separate" (combine=False, multiple videos):
-      video_index omitted: a lightweight per-video INDEX only -
-        [{"youtube_url", "available", "text_length" or "reason"}, ...] -
-        never the full text for every video at once, since that list is
-        exactly the case that can exceed MCP's ~1 MB response limit on a
-        real multi-dozen-video batch.
-      video_index given (0-based, in submission order): that one video's
-        full {"youtube_url", "available", "text"|"reason"}.
+    Full text is read in pages: pass unit_index, then follow next_offset
+    (returned until the end, then null) as `offset`. Pages are whole text,
+    nothing summarized; limit defaults to 100000 characters (max 150000)
+    because a single tool result can't carry a multi-hour batch. Pages end
+    at a line break where possible.
     """
     job = get_job(job_id)
-    if job.get("status") != "done":
-        return job
-    result = job.get("result") or {}
+    return gemini_client.result_view(job, job_id, unit_index, offset, limit)
 
-    if result.get("mode") == "separate":
-        videos = result.get("videos", [])
-        if video_index is not None:
-            if not (0 <= video_index < len(videos)):
-                return {"status": "done", "error": f"video_index out of range "
-                        f"(0..{len(videos) - 1})"}
-            return {"status": "done", **videos[video_index]}
-        return {
-            "status": "done", "mode": "separate", "videos_count": len(videos),
-            "index": [
-                {"youtube_url": v["youtube_url"], "available": v["available"],
-                 **({"text_length": len(v["text"])} if v.get("available") else
-                    {"reason": v.get("reason")})}
-                for v in videos
-            ],
-        }
 
-    return {"status": "done", **result}
+@mcp.tool()
+def describe_videos_budget() -> Dict[str, Any]:
+    """
+    Today's Gemini usage as this service has counted it (Pacific day, the
+    boundary Gemini's daily quotas reset on): requests made - failed
+    attempts included, since reports say 503s count against the quota - and
+    ESTIMATED hours of video sent (from token usage), next to the local
+    limits that stop a batch (ASTROMCP_GEMINI_DAILY_VIDEO_HOURS, default 8
+    = the free tier's documented YouTube cap; ASTROMCP_GEMINI_DAILY_REQUESTS,
+    off by default). Blind to anything else using the same key - Google's
+    own usage dashboard (delayed ~15 min) is the authority.
+    """
+    return gemini_client.budget_snapshot()
 
 
 if __name__ == "__main__":

@@ -76,12 +76,12 @@ far).
   `help("socionics")` for the one concrete use this was built for so
   far (typing) - nothing about this tool itself is socionics-specific,
   it applies equally to any other corpus/topic that gets indexed later.
-- `describe_videos_start` / `describe_videos_result` - turn one or more
-  YouTube videos into a detailed text description via Gemini (this
-  service has no native video/audio understanding of its own). submit_job-
-  backed, same async pattern as rectif_pipeline_start. See
-  `help("video_description")` for the actual prompt, multi-video batching,
-  and why this exists.
+- `describe_videos_start` / `describe_videos_result` / `describe_videos_budget`
+  - turn YouTube videos into detailed text descriptions via Gemini (this
+  service has no native video/audio understanding). Async, resumable,
+  one request per video, full text read in pages, stops itself before
+  burning quota. See `help("video_description")` for the prompt, the
+  limits and what's still unverified.
 - `ping` - connectivity check.
 
 This service is also reachable outside the MCP tool interface, via two

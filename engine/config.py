@@ -133,3 +133,25 @@ RAG_TOP_K = _get_int("ASTROMCP_RAG_TOP_K", 3)
 # Cap on always-include (methodology-doc) expansion per query - see
 # engine/rag.py's retrieve() docstring for why this exists at all.
 RAG_ALWAYS_INCLUDE_MAX_CHARS = _get_int("ASTROMCP_RAG_ALWAYS_INCLUDE_MAX_CHARS", 28000)
+
+# --- Gemini video description (engine/gemini_client.py) ---
+# GEMINI_API_KEY itself is deliberately NOT here - see gemini_client.py's
+# module docstring (google-genai auto-detects the unprefixed name).
+# Free tier is the assumed baseline: small daily request budgets, and
+# per-minute token limits that a single long video can eat most of, so
+# the defaults are conservative (sequential, few retries).
+GEMINI_CONCURRENCY = _get_int("ASTROMCP_GEMINI_CONCURRENCY", 1)
+# Attempts per request, first try included. Each attempt (failed ones
+# too - user reports say 503s count against the quota) is one request.
+GEMINI_MAX_ATTEMPTS = _get_int("ASTROMCP_GEMINI_MAX_ATTEMPTS", 3)
+GEMINI_RETRY_BASE_SECONDS = _get_float("ASTROMCP_GEMINI_RETRY_BASE_SECONDS", 30.0)
+# Consecutive failed units (retries already exhausted) before a batch
+# stops launching new ones and reports the rest as deferred.
+GEMINI_BREAKER_THRESHOLD = _get_int("ASTROMCP_GEMINI_BREAKER_THRESHOLD", 3)
+# Local guards against Gemini's free-tier daily caps (0 = disabled). The
+# 8 h/day YouTube figure is from Gemini's video docs; video hours are an
+# ESTIMATE from prompt-token usage, requests are counted exactly.
+GEMINI_DAILY_VIDEO_HOURS = _get_float("ASTROMCP_GEMINI_DAILY_VIDEO_HOURS", 8.0)
+GEMINI_DAILY_REQUESTS = _get_int("ASTROMCP_GEMINI_DAILY_REQUESTS", 0)
+# How long a finished description stays retrievable/reusable.
+VIDEO_CACHE_TTL_DAYS = _get_int("ASTROMCP_VIDEO_CACHE_TTL_DAYS", 30)

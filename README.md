@@ -130,6 +130,7 @@ modified, or reused independently.
 | `help` | Reads a methodology/usage guide from `help_texts/*.md` - see below |
 | `rectif_note_append` | Appends a dated note to `help_texts/session_notes.md`, an append-only session-notes log for the LLM client itself - not curated methodology, gitignored rather than committed, and no edit/delete tool exists for it by design |
 | `rag_search` | Semantic search over a document corpus you've indexed with `build_index.py` (optional - see "RAG document search" below). Generic: has no built-in knowledge of what the corpus is about |
+| `describe_videos_start` / `describe_videos_result` / `describe_videos_budget` | Optional: YouTube video -> detailed text description via Gemini (this service can't watch video itself). Async and resumable, one request per video, full text read in pages, stops itself before burning Gemini quota - see "Gemini video description" below |
 | `ping` | Connectivity test |
 
 Full parameter reference is in the docstrings in `app.py` (visible to the
@@ -512,6 +513,26 @@ rag_search(query="что символизирует 4-я функция в Мо�
 Returns the matching chunks (text + which document/topic each came from),
 not a generated answer - reasoning over them is the caller's (Claude's) own
 job, same as with any other tool's factual result.
+
+## Gemini video description (optional)
+
+Lets Claude work with video material: `describe_videos_start` sends YouTube
+URLs to Gemini with the prompt from `help_texts/video_description.md`, and
+`describe_videos_result` reads the text back. Independent of every other
+feature; skip it if you don't need it. Design, limits and open questions:
+`help("video_description")`.
+
+Setup: `pip install -r install/requirements.txt` (adds `google-genai`), put
+`GEMINI_API_KEY=...` in `.env` (unprefixed on purpose - the SDK looks for
+exactly that name), restart. The `ASTROMCP_GEMINI_*` and
+`ASTROMCP_VIDEO_CACHE_TTL_DAYS` settings in `install/.env.example` default to
+free-tier-safe values (sequential, 3 attempts, 8 h/day of video). Finished
+descriptions and per-day counters live in Redis when configured (same
+fallback as jobs: in-memory, lost on restart).
+
+Quick check without Claude: `python3 test_gemini_video.py <url>` (same code,
+same cache and budget). Logic tests, no network needed:
+`python3 -m unittest discover -s tests -v`.
 
 ## Hosting / reverse proxy setup
 

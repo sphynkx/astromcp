@@ -18,6 +18,7 @@ import logging
 import threading
 import time
 import uuid
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, Iterator, Optional, Tuple
 
@@ -28,6 +29,7 @@ logger = logging.getLogger("astromcp")
 _redis = None
 _memory_jobs: Dict[str, Dict[str, Any]] = {}
 _lock = threading.Lock()
+_local = threading.local()
 _executor = ThreadPoolExecutor(max_workers=4)
 
 _REDIS_KEY_PREFIX = "astromcp:job:"
@@ -133,6 +135,7 @@ def submit_job(func: Callable, *args, **kwargs) -> str:
         "started_at": time.time(), "finished_at": None,
     })
     def _run():
+        _local.job_id = job_id
         try:
             result = func(*args, **kwargs)
             started = (_load(job_id) or {}).get("started_at", time.time())
@@ -144,6 +147,8 @@ def submit_job(func: Callable, *args, **kwargs) -> str:
             started = (_load(job_id) or {}).get("started_at", time.time())
             _store(job_id, {"status": "error", "result": None, "error": str(e),
                             "started_at": started, "finished_at": time.time()})
+        finally:
+            _local.job_id = None
     _executor.submit(_run)
     return job_id
 
@@ -240,3 +245,94 @@ def list_jobs() -> Dict[str, Any]:
         elapsed = (data.get("finished_at") or time.time()) - data.get("started_at", time.time())
         jobs.append({"job_id": jid, "status": data["status"], "elapsed_seconds": round(elapsed, 1)})
     return {"jobs": jobs, "count": len(jobs)}
+
+
+# --- generic key/value + counter helpers (Redis, in-memory fallback) ---
+#
+# Not job results: small named records that outlive - or are independent
+# of - any one job (per-video description cache, per-day usage counters,
+# live job progress). Same Redis connection and same fallback rule as the
+# job registry above, so "Redis unavailable" degrades exactly one way
+# across the whole service.
+
+_KV_PREFIX = "astromcp:kv:"
+_memory_kv: Dict[str, Tuple[Optional[float], bytes]] = {}
+_memory_hash: Dict[str, Tuple[Optional[float], Dict[str, float]]] = {}
+
+
+def current_job_id() -> Optional[str]:
+    """The job_id of the submit_job job the CALLING THREAD is running, or
+    None (called outside a job, or from a helper thread the job itself
+    spawned - only the job's own thread sees it)."""
+    return getattr(_local, "job_id", None)
+
+
+def kv_set(namespace: str, key: str, value: Any, ttl_seconds: Optional[int] = None,
+           compress: bool = False) -> None:
+    """Store a JSON-serializable value. compress=True zlib-compresses the
+    stored bytes - worth it for long text (Cyrillic/Portuguese transcripts
+    shrink several-fold); irrelevant to what a reader gets back, which is
+    always the decompressed value."""
+    full = f"{_KV_PREFIX}{namespace}:{key}"
+    raw = json.dumps(value, ensure_ascii=False, default=str).encode("utf-8")
+    if _redis is not None:
+        payload = (b"Z" + zlib.compress(raw)) if compress else (b"J" + raw)
+        _redis.set(full, payload, ex=ttl_seconds)
+    else:
+        expires = time.time() + ttl_seconds if ttl_seconds else None
+        with _lock:
+            _memory_kv[full] = (expires, raw)
+
+
+def kv_get(namespace: str, key: str) -> Optional[Any]:
+    full = f"{_KV_PREFIX}{namespace}:{key}"
+    if _redis is not None:
+        payload = _redis.get(full)
+        if payload is None:
+            return None
+        body = zlib.decompress(payload[1:]) if payload[:1] == b"Z" else payload[1:]
+        return json.loads(body)
+    with _lock:
+        entry = _memory_kv.get(full)
+        if entry is None:
+            return None
+        expires, raw = entry
+        if expires is not None and expires < time.time():
+            _memory_kv.pop(full, None)
+            return None
+        return json.loads(raw)
+
+
+def kv_hincr(namespace: str, key: str, field: str, amount: float,
+             ttl_seconds: Optional[int] = None) -> None:
+    """Atomically add `amount` to a numeric field of a small hash - the
+    per-day usage counters (requests, estimated video seconds)."""
+    full = f"{_KV_PREFIX}{namespace}:{key}"
+    if _redis is not None:
+        _redis.hincrbyfloat(full, field, amount)
+        if ttl_seconds:
+            _redis.expire(full, ttl_seconds)
+        return
+    with _lock:
+        expires, fields = _memory_hash.get(full, (None, {}))
+        if expires is not None and expires < time.time():
+            fields = {}
+        fields[field] = fields.get(field, 0.0) + amount
+        expires = time.time() + ttl_seconds if ttl_seconds else expires
+        _memory_hash[full] = (expires, fields)
+
+
+def kv_hgetall(namespace: str, key: str) -> Dict[str, float]:
+    full = f"{_KV_PREFIX}{namespace}:{key}"
+    if _redis is not None:
+        raw = _redis.hgetall(full)
+        return {(k.decode() if isinstance(k, bytes) else k): float(v) for k, v in raw.items()}
+    with _lock:
+        entry = _memory_hash.get(full)
+        if entry is None:
+            return {}
+        expires, fields = entry
+        if expires is not None and expires < time.time():
+            _memory_hash.pop(full, None)
+            return {}
+        return dict(fields)
