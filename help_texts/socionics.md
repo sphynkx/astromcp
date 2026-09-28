@@ -46,6 +46,54 @@ genuinely complete analysis of all 8 functions - not on whichever one or
 two functions happened to produce the most vivid, easy-to-spot evidence
 first.
 
+## Scope: what can be typed, and what that changes
+
+This project works from the premise that TIM describes how a subject
+handles information - receives, processes, outputs it - so the method is
+not limited to real people speaking for themselves. Fictional and animated
+characters, groups and states, systems and artifacts, and AI models are all
+legitimate subjects when the user names them as the target. That is the
+working premise of the method here, not something this document tries to
+establish, and nothing below claims anything about which type any such
+subject has.
+
+What it DOES change is where the evidence comes from and what can distort
+it. Before analyzing, state the subject class and what counts as its
+evidence:
+
+- **A real person, speaking or acting for themselves** - the standard case;
+  steps 5 and 6 below apply as written.
+- **A real person known through others** (a biography, memoirs, a
+  document or work they left behind): the evidence is filtered. Note who is speaking about the person, what
+  they could actually have observed, and whether sources are independent of
+  each other or repeat one original account.
+- **A fictional or animated character**: the evidence is authored - by the
+  writer and, in adaptations, by the actor, director and editor as well.
+  Type the character as portrayed in the specified source. If the target
+  is the actor, roles are NOT evidence (typing an actor from their roles is
+  typing the role); if the target is the character, the actor's own
+  off-screen behavior isn't either. Ask which is meant if it isn't clear.
+- **A group, state or institution**: the evidence is what the whole does
+  over time - decisions, documents, actual conduct. Treat what the subject
+  says about itself as a claim to compare against what it does; that gap is
+  this case's version of the role/mask problem.
+- **A system or an AI model**: the evidence is its outputs. Output depends
+  heavily on the instructions, system prompt and conversation partner in
+  play - the counterpart of interlocutor mirroring (step 6), and worth
+  naming for every sample. Sample across varied contexts and note which
+  context each sample came from. A model's own description of how it works
+  is a claim to check against its behavior, not an observation of it.
+
+## Hypotheses first, checking second
+
+When a typing hypothesis comes from partial evidence and will later be
+checked against independent material (more recordings, other people's
+accounts, a biography), write the candidate set down BEFORE looking, and
+say in advance what counts as a hit. Afterward report how the candidates
+actually fared - misses included. Once the answer is known, the evidence
+is easy to read so that it fits; a written prediction is what separates
+checking a hypothesis from retelling it.
+
 ## Mandatory procedure
 
 1. **Study the entire source material first, in full, before concluding
@@ -54,11 +102,13 @@ first.
    looks decisive early on is exactly the kind of premature anchor the
    rule above is against.
 
-2. **Identify the actual target person before analyzing anything.**
-   Confirm who you're typing versus anyone else present in the material
-   (interviewers, co-hosts, other speakers, characters someone is
-   describing) - a wrong-person mix-up invalidates everything downstream
-   of it, so get this right before functions are even considered.
+2. **Identify the actual target - and what kind of subject it is - before
+   analyzing anything.** Confirm who or what you're typing versus anyone
+   else present in the material (interviewers, co-hosts, other speakers,
+   characters someone is describing) - a wrong-target mix-up invalidates
+   everything downstream of it, so get this right before functions are
+   even considered. If the target isn't an ordinary real person speaking
+   for themselves, "Scope" below says what that changes.
 
 3. **Analyze via all 8 functions of Model A**, using the flow/position
    each one occupies rather than treating them as a flat checklist. A
