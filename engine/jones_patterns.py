@@ -239,9 +239,33 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
                             "detail": f"bundle ({rem_span:.1f} deg) with a {handle_size}-planet handle ({', '.join(handle)}, in conjunction) standing apart in the gap",
                             "gaps": gaps_report}
             elif 155.0 <= rem_span <= 205.0 and _is_opposition(remaining[rem_edge_a], remaining[rem_edge_b]):
-                if _handle_is_opposite(longitudes, handle, remaining):
+                # Same clustering requirement as the Sling branch above,
+                # and for the same reason - this check was missing here
+                # until Kashnitsky, Saveliy Efremovich (21.03.1952,
+                # 12:00, Kyiv) exposed it: with Mars/Saturn/Neptune
+                # removed as the "handle", the remaining 7 planets do
+                # form a clean 198.8 deg bowl with Pluto/Moon in
+                # opposition (18.8 deg off, within OPPOSITION_ORB) - but
+                # Mars/Saturn/Neptune themselves span 35.9 deg
+                # (mars-saturn alone, just over HANDLE_CLUSTER_ORB), i.e.
+                # three separate points scattered across more than a
+                # sign, not one handle. _handle_is_opposite alone can't
+                # catch this - each of the three sits within MIDPOINT_ORB
+                # of the bowl's gap-midpoint individually, which is all
+                # that check verifies. Without this, the chart classified
+                # as "bucket"; the correct real-chart reading (verified
+                # via direct classify_jones_figure() run on these exact
+                # longitudes) is "splash" - no handle in any 1-3 planet
+                # subset is both opposite the remaining bowl/bundle AND
+                # itself a tight cluster, so it falls through past
+                # Locomotive to Splash (g_max=79.1 deg), matching how the
+                # chart actually looks. A single- or double-planet handle
+                # (the ordinary case) is unaffected: _handle_is_clustered
+                # returns True trivially for len(handle)<=1, and a real
+                # conjunction-handle still passes for 2-3 planets.
+                if _handle_is_opposite(longitudes, handle, remaining) and _handle_is_clustered(longitudes, handle):
                     return {"figure": "bucket",
-                            "detail": f"bowl ({rem_span:.1f} deg span) plus a {handle_size}-planet handle ({', '.join(handle)}) opposite the main group",
+                            "detail": f"bowl ({rem_span:.1f} deg span) plus a {handle_size}-planet handle ({', '.join(handle)}, in conjunction) opposite the main group",
                             "gaps": gaps_report}
 
     # --- Locomotive (occupied span up to 240 deg / empty arc >=120 deg) ---
