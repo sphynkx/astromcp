@@ -154,62 +154,93 @@ def _enclosing_arc(longitudes: Dict[str, float]) -> Tuple[float, str, str]:
 def _second_largest_gap(longitudes: Dict[str, float]) -> float:
     """Returns the second-largest of the consecutive gaps around this
     point set (ties broken arbitrarily - only the magnitude matters
-    here). Used to catch a "clean mass" misread: _enclosing_arc only
-    ever looks at the SINGLE largest gap to define occupied_span, so a
-    point set that is actually two (or more) separate clusters stuffed
-    inside that span - with its own near-as-large internal gap - can
-    still pass a bare span/opposition check. A genuine single mass
-    (Jones' Bundle/Bowl) doesn't have a second gap anywhere close to
-    the size of the one defining its own empty arc."""
+    here). Kept as a small utility (used by nothing in this module as
+    of the rewrite below, but cheap and potentially useful for callers
+    inspecting a chart's gap structure) - see _internal_big_gap_count
+    for the actual "is this one clean mass" test now used internally."""
     gaps = sorted((g for g, _a, _b in _sorted_gaps(longitudes)), reverse=True)
     return gaps[1] if len(gaps) > 1 else 0.0
 
 
-# Cap on that second-largest internal gap for a Bundle/Bowl (or a
-# Sling/Bucket's "remaining" group) to still count as one clean mass
-# rather than two separate clusters squeezed into the same span.
+def _internal_big_gap_count(longitudes: Dict[str, float], threshold: float) -> int:
+    """How many of this point set's OWN internal gaps (i.e. every
+    consecutive gap except the single largest one, which is taken to
+    be the empty arc defining the set's occupied span, not part of its
+    internal structure) exceed `threshold`. Used to tell a single mass
+    with one uneven/sparse stretch apart from a mass that is really two
+    or more separate clusters - see CLEAN_MASS_BIG_GAP_THRESHOLD below
+    for why this has to be a GAP COUNT, not a single magnitude ceiling
+    on "the second-largest gap" (the earlier approach, kept only as
+    _second_largest_gap above for compatibility)."""
+    gaps = sorted((g for g, _a, _b in _sorted_gaps(longitudes)), reverse=True)
+    return sum(1 for g in gaps[1:] if g > threshold)
+
+
+# Threshold for what counts as a "real" internal break for
+# _internal_big_gap_count, and the rule built on it (used everywhere
+# this module checks that a Bundle/Bowl - or a Sling/Bucket's
+# "remaining" group - is one clean mass, not two+ clusters squeezed
+# into the same span): AT MOST ONE internal gap may exceed this value.
 #
-# Added after Kovalenko, Roman Konstantinovich (10.07.1990, Novosibirsk,
-# noon - no rectified time on record, so noon is the working default):
-# removing Pluto alone merges the two gaps either side of it
-# (mercury->pluto 108.7 deg + pluto->uranus 52.1 deg = 160.8 deg) into
-# one "empty" arc, leaving a 199.2 deg "occupied" span that passes the
-# Bowl range and opposition check - but that span still contains its
-# OWN 76.3 deg gap (moon->mars) and a further 49.7 deg one (mars->venus)
-# - i.e. it is really four separate clusters spaced roughly evenly
-# around the whole wheel (sizes 4/1/4/1, each cluster roughly 90 deg
-# from the next), not one mass with a handle. Chart was classified
-# "bucket" (handle: pluto); correct reading is "splash" (true largest
-# gap among all 10 points is 108.7 deg, under the 120 deg Locomotive
-# threshold - this chart is spread, not a bowl-plus-handle).
+# This replaces an earlier approach (a flat ceiling on just the
+# second-largest internal gap, widened once from 40 to 43 - see git
+# history) that is mathematically unable to handle two real cases this
+# project has now hit at once, because their defining numbers run the
+# WRONG way for a single ceiling to separate them:
 #
-# 40 deg is chosen as comfortably above HANDLE_CLUSTER_ORB (35, the
-# tolerance for a HANDLE's own internal width) while being nowhere near
-# the 49.7/76.3 deg gaps that exposed this bug - i.e. generous enough
-# not to reject a real Bowl/Bundle with one modestly uneven internal
-# gap, while still catching a mass that is visibly two or more separate
-# clusters. Not sourced to a specific number (no source gives one for
-# this either), same style as HANDLE_CLUSTER_ORB and MIDPOINT_ORB above.
+#   - Kovalenko, Roman Konstantinovich (10.07.1990, Novosibirsk, noon):
+#     removing Pluto alone merges the two gaps either side of it
+#     (mercury->pluto 108.7 deg + pluto->uranus 52.1 deg) into one
+#     199.2 deg "occupied" span that passes the Bowl range and
+#     opposition check - but that span contains not one but TWO large
+#     internal gaps of its own, 76.3 deg (moon->mars) AND 49.7 deg
+#     (mars->venus) - i.e. it is really three separate clusters spaced
+#     unevenly around that span (and, together with Pluto, four
+#     clusters around the whole wheel), not one mass with a handle.
+#     MUST be rejected (correct reading: "splash", true largest gap
+#     among all 10 points is 108.7 deg).
+#   - Beletskaya, Irina Evgenyevna (20.11.1965, noon - no birth time on
+#     record): removing Jupiter alone leaves a 172.3 deg remaining span
+#     (pluto through saturn) that passes the Bowl range and opposition
+#     check (edges 7.7 deg off exact opposition) - with exactly ONE
+#     notably uneven internal gap, 55.6 deg (venus->saturn), and
+#     nothing else in that span over 34.4 deg. Visually and
+#     structurally a clean Bucket (confirmed directly by the user) with
+#     Saturn simply sitting at the sparser end of an otherwise ordinary
+#     bowl, not a second hidden cluster. MUST be accepted.
 #
-# WIDENED from 40 to 43 after Ryazanov, Eldar Alexandrovich (18.11.1927,
-# noon - no rectified time on record): removing Jupiter+Uranus (6.1 deg
-# apart, a tight handle) leaves an 8-planet remaining mass spanning
-# 141.4 deg (pluto->saturn), opposite that handle almost exactly (the
-# gap's own midpoint and the handle's center fall within ~1 deg of each
-# other) - a textbook Sling. That remaining mass's own largest internal
-# gap (pluto->neptune, 42.2 deg) is the ordinary internal structure of
-# a single clustered mass with one member (Pluto) sitting a bit further
-# from the rest, not a second mass hiding inside it the way Kovalenko's
-# 76.3/49.7 deg gaps were - but it sat 2.2 deg above the old 40 deg
-# limit, so the Sling reading (see the matching rem_span widening in
-# the handle-search loop below) still failed this check and fell
-# through to Splash. 43 is chosen to admit this real case with a small
-# margin while staying well clear of the 49.7 deg Kovalenko gap that
-# must still be rejected - i.e. it doesn't reopen the bug this constant
-# was added to fix, it only moves the line enough to recognize that one
-# outlying planet within an otherwise-clustered mass is ordinary
-# variation in how a mass forms, not a sign of a second hidden cluster.
-CLEAN_MASS_SECOND_GAP_LIMIT = 43.0
+#   Kovalenko's rejected gap (49.7) is SMALLER than Beletskaya's
+#   accepted one (55.6) - no single "second-largest gap <= N" ceiling
+#   can put 49.7 on one side of N and 55.6 on the other. What actually
+#   distinguishes them isn't the size of any one gap, it's the COUNT:
+#   Kovalenko's remaining span has two comparably large internal breaks
+#   (76.3 AND 49.7, both well clear of 40), Beletskaya's has only one
+#   (55.6 - the next-biggest, 34.4, isn't close). Two real breaks means
+#   (at least) three real clusters; one real break is just one mass
+#   with an unevenly-filled stretch, which is well within how loosely
+#   Jones' own Bowl/Bundle were ever defined to begin with.
+#
+#   40 deg is kept from the original ceiling's own reasoning (still
+#   comfortably above HANDLE_CLUSTER_ORB's 35 deg handle-width
+#   tolerance) and sits cleanly between Beletskaya's single qualifying
+#   gap (55.6, counted) and her next one (34.4, not counted), while
+#   still catching BOTH of Kovalenko's two qualifying gaps (76.3 and
+#   49.7 are both > 40, so his count is 2, correctly rejected). The
+#   Ryazanov, Eldar Alexandrovich case that motivated the earlier 40->43
+#   widening (remaining mass's own largest internal gap 42.2 deg,
+#   pluto->neptune) is also unaffected by reverting to 40 here: 42.2 is
+#   its ONLY internal gap anywhere near large (next is 31.2), so its
+#   count is 1 either way - the count-based rule admits it without
+#   needing that widening at all.
+CLEAN_MASS_BIG_GAP_THRESHOLD = 40.0
+
+
+def _is_one_clean_mass(longitudes: Dict[str, float]) -> bool:
+    """True if this point set reads as one mass (at most one internal
+    gap over CLEAN_MASS_BIG_GAP_THRESHOLD) rather than two or more
+    separate clusters - see CLEAN_MASS_BIG_GAP_THRESHOLD for the full
+    reasoning and the real-chart cases that shaped it."""
+    return _internal_big_gap_count(longitudes, CLEAN_MASS_BIG_GAP_THRESHOLD) <= 1
 
 
 def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
@@ -237,7 +268,7 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
     g_max = 360.0 - occupied_span
 
     # --- Clean Bundle (<=140 deg, nothing in the gap at all) ---
-    if occupied_span <= 140.0 and _second_largest_gap(longitudes) <= CLEAN_MASS_SECOND_GAP_LIMIT:
+    if occupied_span <= 140.0 and _is_one_clean_mass(longitudes):
         return {"figure": "bundle", "detail": f"all planets within {occupied_span:.1f} deg; empty gap {g_max:.1f} deg ({edge_a}->{edge_b})", "gaps": gaps_report}
 
     # --- Clean Bowl (155-205 deg span, rim planets in opposition, gap empty) ---
@@ -248,7 +279,7 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
     # fix below for the other half of that bug). 155-205 gives 5 deg of
     # real-world slack on a threshold that's a rough visual guideline to
     # begin with, not a physical law.
-    if 155.0 <= occupied_span <= 205.0 and _is_opposition(longitudes[edge_a], longitudes[edge_b]) and _second_largest_gap(longitudes) <= CLEAN_MASS_SECOND_GAP_LIMIT:
+    if 155.0 <= occupied_span <= 205.0 and _is_opposition(longitudes[edge_a], longitudes[edge_b]) and _is_one_clean_mass(longitudes):
         return {"figure": "bowl", "detail": f"all planets within {occupied_span:.1f} deg; rim planets {edge_a}/{edge_b} in opposition, empty gap {g_max:.1f} deg", "gaps": gaps_report}
 
     # --- Splay / See-Saw: checked from the RAW gap structure (no
@@ -293,8 +324,8 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
             # apart) leaves an 8-planet remaining mass spanning 141.4
             # deg - a genuine Sling (handle-plus-bundle) structure by
             # every other check (opposition, clustering, internal-gap
-            # cleanliness - see the matching CLEAN_MASS_SECOND_GAP_LIMIT
-            # widening above), but 1.4 deg past the old 140 cutoff, so
+            # cleanliness - see CLEAN_MASS_BIG_GAP_THRESHOLD above),
+            # but 1.4 deg past the old 140 cutoff, so
             # it fell into the dead zone between this branch's old 140
             # ceiling and the Bucket branch's 155 floor below and was
             # never evaluated as a handle candidate at all - it fell
@@ -307,7 +338,7 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
             # Bucket branch's 155 floor just below, so the two windows
             # still don't overlap and a genuine half-circle Bowl is
             # never read as a Sling's "bundle" instead.
-            if rem_span <= 145.0 and _second_largest_gap(remaining) <= CLEAN_MASS_SECOND_GAP_LIMIT:
+            if rem_span <= 145.0 and _is_one_clean_mass(remaining):
                 # A multi-planet handle is still a Sling, not a distinct
                 # shape, as long as the handle planets are themselves a
                 # tight cluster (conjunction) rather than two separate
@@ -317,12 +348,12 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
                 # a fallthrough to the general classification below.
                 # The remaining group must also itself be one clean mass,
                 # not two+ clusters merely left under the span threshold
-                # by removing the handle - see CLEAN_MASS_SECOND_GAP_LIMIT.
+                # by removing the handle - see CLEAN_MASS_BIG_GAP_THRESHOLD.
                 if _handle_is_opposite(longitudes, handle, remaining) and _handle_is_clustered(longitudes, handle):
                     return {"figure": "sling",
                             "detail": f"bundle ({rem_span:.1f} deg) with a {handle_size}-planet handle ({', '.join(handle)}, in conjunction) standing apart in the gap",
                             "gaps": gaps_report}
-            elif 155.0 <= rem_span <= 205.0 and _is_opposition(remaining[rem_edge_a], remaining[rem_edge_b]) and _second_largest_gap(remaining) <= CLEAN_MASS_SECOND_GAP_LIMIT:
+            elif 155.0 <= rem_span <= 205.0 and _is_opposition(remaining[rem_edge_a], remaining[rem_edge_b]) and _is_one_clean_mass(remaining):
                 # Same clustering requirement as the Sling branch above,
                 # and for the same reason - this check was missing here
                 # until Kashnitsky, Saveliy Efremovich (21.03.1952,
@@ -453,6 +484,22 @@ def _handle_is_opposite(all_longitudes: Dict[str, float], handle: Tuple[str, ...
     )
 
 
+def _max_internal_gap_in_arc(longitudes: Dict[str, float], start_name: str, end_name: str) -> float:
+    """Largest consecutive gap among every point lying in the CLOSED
+    forward arc from `start_name` to `end_name` (inclusive of both
+    endpoints), measuring only within that bounded arc - no wraparound
+    past `end_name`. 0.0 if the arc contains one point or fewer. Used
+    to check that a candidate "group" bounded by two gaps isn't itself
+    hiding an even bigger internal split - see _check_seesaw."""
+    start_pos = longitudes[start_name]
+    end_pos = longitudes[end_name]
+    span = (end_pos - start_pos) % 360
+    offsets = sorted((pos - start_pos) % 360 for pos in longitudes.values() if (pos - start_pos) % 360 <= span + 1e-9)
+    if len(offsets) <= 1:
+        return 0.0
+    return max(b - a for a, b in zip(offsets, offsets[1:]))
+
+
 def _check_seesaw(longitudes: Dict[str, float], gaps: List[Tuple[float, str, str]]) -> Optional[Dict[str, Any]]:
     """
     See-Saw: planets fall into two groups on roughly opposite sides of
@@ -476,6 +523,34 @@ def _check_seesaw(longitudes: Dict[str, float], gaps: List[Tuple[float, str, str
     mid2 = (longitudes[a2] + g2 / 2.0) % 360
     if not _is_opposition(mid1, mid2, 40.0):
         return None
+
+    # Each of the two "groups" these gaps bound must itself be a real,
+    # reasonably coherent group - not hiding an even-bigger split that
+    # these two gaps alone don't capture. Added after Beletskaya, Irina
+    # Evgenyevna (20.11.1965, noon - no birth time on record): Jupiter
+    # sits alone, 78.5 deg from the main 8-planet mass on one side and
+    # 109.2 deg from Saturn (the mass's far rim planet) on the other -
+    # that 109.2 deg gap is the single LARGEST in the whole chart, but
+    # it falls outside this check's 50-100 deg filter window, so the
+    # old code never saw it and happily matched "two gaps, 78.5 and
+    # 55.6, roughly opposite" - reading {Saturn, Jupiter} as one of the
+    # two "groups", when those two planets are actually just the bare
+    # endpoints of an entirely empty 109 deg arc, not a group at all.
+    # Correct reading (confirmed directly by the user, visually and
+    # structurally): a single 9-planet Bucket with Jupiter as the sole
+    # handle (see the matching CLEAN_MASS_BIG_GAP_THRESHOLD fix, needed
+    # for the Bucket branch below to actually accept that remaining
+    # 9-planet mass once Seesaw stops preempting it here). The check
+    # below requires that neither candidate group contains an internal
+    # gap as large as the smaller of the two defining gaps - i.e. that
+    # these two gaps really are the two biggest divisions in the chart,
+    # which is what Jones' own "two vacant arcs" description assumes.
+    smaller_defining_gap = min(g1, g2)
+    if _max_internal_gap_in_arc(longitudes, b1, a2) >= smaller_defining_gap:
+        return None
+    if _max_internal_gap_in_arc(longitudes, b2, a1) >= smaller_defining_gap:
+        return None
+
     return {
         "figure": "seesaw",
         "detail": f"two planet groups separated by two gaps of {g1:.1f} deg and {g2:.1f} deg on roughly opposite sides of the wheel",
