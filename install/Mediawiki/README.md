@@ -185,6 +185,25 @@ manual `[...]` or `[[...]]` wrapping around the `{{#invoke:...}}`
 (wrapping it produces broken nested-bracket wikitext, since the module's
 own output already has its own bracket structure).
 
+Passing `|json=1` switches `p.wheel()` into a different mode entirely: it
+returns the bare JSON-endpoint URL as plain text (no markup, no HTML
+escaping) instead of the `<img>`/link wikitext above - everything the
+SVG URL has (`date`/`time`/`house_system` plus `lat`/`lon` **or**
+`city`/`country_code`, plus `lots` if given) except the `/chart.svg` path
+segment itself and the picture-only params (`name`, `photo_url`,
+`filename`), which don't apply to the plain JSON response. This is meant
+to be wrapped in an ordinary external-link bracket *inside the template
+itself* (note **single** brackets and a **space**, not a pipe - that's
+MediaWiki's external-link syntax, not an internal wikilink, and a raw
+URL doesn't work inside `[[...|...]]`):
+
+    [{{#invoke:Astrodata|wheel | ... same params ... |json=1}} Натальная карта]
+
+Any value other than empty/`0`/`false`/`no`/`off` counts as truthy for
+`json` (matching how `#invoke` always hands a module a string, never a
+real boolean) - `|json=1` is the natural spelling, but `|json=yes` works
+identically.
+
 ---
 
 ## Module:ParseType
