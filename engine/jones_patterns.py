@@ -352,9 +352,34 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
                             "detail": f"bowl ({rem_span:.1f} deg span) plus a {handle_size}-planet handle ({', '.join(handle)}, in conjunction) opposite the main group",
                             "gaps": gaps_report}
 
-    # --- Locomotive (occupied span up to 240 deg / empty arc >=120 deg) ---
-    if occupied_span <= 240.0:
-        return {"figure": "locomotive", "detail": f"all planets within {occupied_span:.1f} deg (empty arc {g_max:.1f} deg >= 120 deg) - a full sign-and-a-half or more left empty", "gaps": gaps_report}
+    # --- Locomotive (occupied span up to 260 deg / empty arc >=100 deg) ---
+    # LOWERED from the traditional 240/120 split after a direct
+    # biography cross-check against the "Фигура Джонса: Брызги" wiki
+    # category turned up real people the 120 deg empty-arc requirement
+    # was misreading as Splash despite having no handle structure at
+    # all (so none of the Sling/Bucket widening above applies to them -
+    # this is a plain threshold miss, not a dead zone): most notably
+    # Antonov, Yuri Mikhailovich (birth time per Pavel Globa's own
+    # rectification, 22:57) - g_max=118.1 deg, a single dominant empty
+    # arc with no second gap anywhere near it (next-largest internal gap
+    # only 48.7 deg), i.e. structurally a clean Locomotive missing the
+    # old cutoff by under 2 deg - matching the user's own direct
+    # biographical judgement ("он формирователь эпохи", not a candidate
+    # for the mediocrity/drift Splash is read as in this project's own
+    # socionics-based framework) and their own first-suggested fix for
+    # this whole class of case ("Наверное стоит изменить диапазон до
+    # 100 гр"). 100 deg was chosen, rather than the also-suggested 90,
+    # specifically to keep a wide safety margin above Karpenko (88.4
+    # deg) and Marchenko (86.3 deg) - the two charts in the same
+    # category the user directly confirmed DO look like genuine
+    # Splash/Splay by eye and should NOT flip. This does admit a number
+    # of other charts in the 100-120 deg band that haven't been
+    # individually biography-checked the way Antonov was - that's a
+    # known, accepted tradeoff of a single global threshold rather than
+    # a per-chart judgement call, flagged for the user to review against
+    # the wiki category rather than silently assumed correct.
+    if occupied_span <= 260.0:
+        return {"figure": "locomotive", "detail": f"all planets within {occupied_span:.1f} deg (empty arc {g_max:.1f} deg >= 100 deg) - a full sign-and-a-half or more left empty", "gaps": gaps_report}
 
     # NOTE: a "Werewolf" shape (Russian-sources-only: every one of the 10
     # gaps under 30 deg) was considered and deliberately NOT implemented -
@@ -369,25 +394,27 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
     # from a Russian-language paraphrase. Checked against real production
     # data (42 charts), that left a completely uncovered band - any chart
     # with a largest gap of roughly 60-120 deg matched NEITHER Splash
-    # (needed <=60) NOR Locomotive (needed >=120) NOR any of the more
-    # specific shapes above, and fell into "Mixed" by construction, not
-    # because the chart was genuinely ambiguous (e.g. Alla Pugacheva,
-    # 15.04.1949: largest gap 78.6 deg - comfortably "spread out" by any
-    # ordinary reading, misclassified as Mixed under the old threshold).
-    # Since every chart already fails Locomotive's own occupied_span<=240
-    # check by the time execution reaches here (g_max<120), Splash is now
-    # simply "not Locomotive, and no more specific shape fit" - the two
-    # exhaust the whole range between them with nothing left uncovered,
-    # matching Splash's traditional role as the default "no dominant
-    # single-gap shape" reading rather than a narrow named pattern of its
-    # own. "Mixed" remains in the code as a defensive fallback (kept
-    # genuinely reachable, not dead code, in case a future change to the
-    # checks above ever leaves a real gap again) but should no longer
-    # fire in practice for any chart with 10 well-defined points - if it
-    # does, that's worth investigating as a real gap, not dismissed as an
-    # expected outcome.
-    if g_max < 120.0:
-        return {"figure": "splash", "detail": f"planets spread around most/all of the wheel, largest single gap {g_max:.1f} deg (<120 deg, i.e. not Locomotive-worthy)", "gaps": gaps_report}
+    # (needed <=60) NOR Locomotive (needed >=120 at the time) NOR any of
+    # the more specific shapes above, and fell into "Mixed" by
+    # construction, not because the chart was genuinely ambiguous (e.g.
+    # Alla Pugacheva, 15.04.1949: largest gap 78.6 deg - comfortably
+    # "spread out" by any ordinary reading, misclassified as Mixed under
+    # the old threshold).
+    # Since every chart already fails Locomotive's own occupied_span<=260
+    # check by the time execution reaches here (g_max<100, following the
+    # Locomotive threshold's own lowering to 100 deg above), Splash is
+    # now simply "not Locomotive, and no more specific shape fit" - the
+    # two exhaust the whole range between them with nothing left
+    # uncovered, matching Splash's traditional role as the default "no
+    # dominant single-gap shape" reading rather than a narrow named
+    # pattern of its own. "Mixed" remains in the code as a defensive
+    # fallback (kept genuinely reachable, not dead code, in case a future
+    # change to the checks above ever leaves a real gap again) but should
+    # no longer fire in practice for any chart with 10 well-defined
+    # points - if it does, that's worth investigating as a real gap, not
+    # dismissed as an expected outcome.
+    if g_max < 100.0:
+        return {"figure": "splash", "detail": f"planets spread around most/all of the wheel, largest single gap {g_max:.1f} deg (<100 deg, i.e. not Locomotive-worthy)", "gaps": gaps_report}
 
     return {"figure": "mixed", "detail": f"no clean fit - largest gap {g_max:.1f} deg, occupied span {occupied_span:.1f} deg does not match any single pattern's range cleanly; this is a genuine, correctly-computed result (Jones' own sources acknowledge transitional/mixed charts exist), not a computation error", "gaps": gaps_report}
 
