@@ -190,7 +190,26 @@ def _second_largest_gap(longitudes: Dict[str, float]) -> float:
 # gap, while still catching a mass that is visibly two or more separate
 # clusters. Not sourced to a specific number (no source gives one for
 # this either), same style as HANDLE_CLUSTER_ORB and MIDPOINT_ORB above.
-CLEAN_MASS_SECOND_GAP_LIMIT = 40.0
+#
+# WIDENED from 40 to 43 after Ryazanov, Eldar Alexandrovich (18.11.1927,
+# noon - no rectified time on record): removing Jupiter+Uranus (6.1 deg
+# apart, a tight handle) leaves an 8-planet remaining mass spanning
+# 141.4 deg (pluto->saturn), opposite that handle almost exactly (the
+# gap's own midpoint and the handle's center fall within ~1 deg of each
+# other) - a textbook Sling. That remaining mass's own largest internal
+# gap (pluto->neptune, 42.2 deg) is the ordinary internal structure of
+# a single clustered mass with one member (Pluto) sitting a bit further
+# from the rest, not a second mass hiding inside it the way Kovalenko's
+# 76.3/49.7 deg gaps were - but it sat 2.2 deg above the old 40 deg
+# limit, so the Sling reading (see the matching rem_span widening in
+# the handle-search loop below) still failed this check and fell
+# through to Splash. 43 is chosen to admit this real case with a small
+# margin while staying well clear of the 49.7 deg Kovalenko gap that
+# must still be rejected - i.e. it doesn't reopen the bug this constant
+# was added to fix, it only moves the line enough to recognize that one
+# outlying planet within an otherwise-clustered mass is ordinary
+# variation in how a mass forms, not a sign of a second hidden cluster.
+CLEAN_MASS_SECOND_GAP_LIMIT = 43.0
 
 
 def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
@@ -268,7 +287,27 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
         for handle in combinations(names, handle_size):
             remaining = {n: p for n, p in longitudes.items() if n not in handle}
             rem_span, rem_edge_a, rem_edge_b = _enclosing_arc(remaining)
-            if rem_span <= 140.0 and _second_largest_gap(remaining) <= CLEAN_MASS_SECOND_GAP_LIMIT:
+            # Upper bound WIDENED from 140 to 145 after Ryazanov, Eldar
+            # Alexandrovich (18.11.1927, noon): removing a clustered,
+            # roughly-opposite 2-planet handle (Jupiter+Uranus, 6.1 deg
+            # apart) leaves an 8-planet remaining mass spanning 141.4
+            # deg - a genuine Sling (handle-plus-bundle) structure by
+            # every other check (opposition, clustering, internal-gap
+            # cleanliness - see the matching CLEAN_MASS_SECOND_GAP_LIMIT
+            # widening above), but 1.4 deg past the old 140 cutoff, so
+            # it fell into the dead zone between this branch's old 140
+            # ceiling and the Bucket branch's 155 floor below and was
+            # never evaluated as a handle candidate at all - it fell
+            # through past Locomotive to Splash (raw single largest gap
+            # 107.3 deg, under the 120 deg Locomotive threshold), not
+            # because the chart lacks handle structure but because the
+            # structure it has was outside both windows this code
+            # checked. 145 is chosen to admit this real case with a
+            # small margin while staying a full 10 deg clear of the
+            # Bucket branch's 155 floor just below, so the two windows
+            # still don't overlap and a genuine half-circle Bowl is
+            # never read as a Sling's "bundle" instead.
+            if rem_span <= 145.0 and _second_largest_gap(remaining) <= CLEAN_MASS_SECOND_GAP_LIMIT:
                 # A multi-planet handle is still a Sling, not a distinct
                 # shape, as long as the handle planets are themselves a
                 # tight cluster (conjunction) rather than two separate
