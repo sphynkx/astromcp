@@ -151,6 +151,48 @@ def _enclosing_arc(longitudes: Dict[str, float]) -> Tuple[float, str, str]:
     return 360.0 - g_max, edge_a, edge_b
 
 
+def _second_largest_gap(longitudes: Dict[str, float]) -> float:
+    """Returns the second-largest of the consecutive gaps around this
+    point set (ties broken arbitrarily - only the magnitude matters
+    here). Used to catch a "clean mass" misread: _enclosing_arc only
+    ever looks at the SINGLE largest gap to define occupied_span, so a
+    point set that is actually two (or more) separate clusters stuffed
+    inside that span - with its own near-as-large internal gap - can
+    still pass a bare span/opposition check. A genuine single mass
+    (Jones' Bundle/Bowl) doesn't have a second gap anywhere close to
+    the size of the one defining its own empty arc."""
+    gaps = sorted((g for g, _a, _b in _sorted_gaps(longitudes)), reverse=True)
+    return gaps[1] if len(gaps) > 1 else 0.0
+
+
+# Cap on that second-largest internal gap for a Bundle/Bowl (or a
+# Sling/Bucket's "remaining" group) to still count as one clean mass
+# rather than two separate clusters squeezed into the same span.
+#
+# Added after Kovalenko, Roman Konstantinovich (10.07.1990, Novosibirsk,
+# noon - no rectified time on record, so noon is the working default):
+# removing Pluto alone merges the two gaps either side of it
+# (mercury->pluto 108.7 deg + pluto->uranus 52.1 deg = 160.8 deg) into
+# one "empty" arc, leaving a 199.2 deg "occupied" span that passes the
+# Bowl range and opposition check - but that span still contains its
+# OWN 76.3 deg gap (moon->mars) and a further 49.7 deg one (mars->venus)
+# - i.e. it is really four separate clusters spaced roughly evenly
+# around the whole wheel (sizes 4/1/4/1, each cluster roughly 90 deg
+# from the next), not one mass with a handle. Chart was classified
+# "bucket" (handle: pluto); correct reading is "splash" (true largest
+# gap among all 10 points is 108.7 deg, under the 120 deg Locomotive
+# threshold - this chart is spread, not a bowl-plus-handle).
+#
+# 40 deg is chosen as comfortably above HANDLE_CLUSTER_ORB (35, the
+# tolerance for a HANDLE's own internal width) while being nowhere near
+# the 49.7/76.3 deg gaps that exposed this bug - i.e. generous enough
+# not to reject a real Bowl/Bundle with one modestly uneven internal
+# gap, while still catching a mass that is visibly two or more separate
+# clusters. Not sourced to a specific number (no source gives one for
+# this either), same style as HANDLE_CLUSTER_ORB and MIDPOINT_ORB above.
+CLEAN_MASS_SECOND_GAP_LIMIT = 40.0
+
+
 def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
     """
     longitudes: {planet_name: absolute_longitude_degrees, ...} - exactly
@@ -176,7 +218,7 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
     g_max = 360.0 - occupied_span
 
     # --- Clean Bundle (<=140 deg, nothing in the gap at all) ---
-    if occupied_span <= 140.0:
+    if occupied_span <= 140.0 and _second_largest_gap(longitudes) <= CLEAN_MASS_SECOND_GAP_LIMIT:
         return {"figure": "bundle", "detail": f"all planets within {occupied_span:.1f} deg; empty gap {g_max:.1f} deg ({edge_a}->{edge_b})", "gaps": gaps_report}
 
     # --- Clean Bowl (155-205 deg span, rim planets in opposition, gap empty) ---
@@ -187,7 +229,7 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
     # fix below for the other half of that bug). 155-205 gives 5 deg of
     # real-world slack on a threshold that's a rough visual guideline to
     # begin with, not a physical law.
-    if 155.0 <= occupied_span <= 205.0 and _is_opposition(longitudes[edge_a], longitudes[edge_b]):
+    if 155.0 <= occupied_span <= 205.0 and _is_opposition(longitudes[edge_a], longitudes[edge_b]) and _second_largest_gap(longitudes) <= CLEAN_MASS_SECOND_GAP_LIMIT:
         return {"figure": "bowl", "detail": f"all planets within {occupied_span:.1f} deg; rim planets {edge_a}/{edge_b} in opposition, empty gap {g_max:.1f} deg", "gaps": gaps_report}
 
     # --- Splay / See-Saw: checked from the RAW gap structure (no
@@ -226,7 +268,7 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
         for handle in combinations(names, handle_size):
             remaining = {n: p for n, p in longitudes.items() if n not in handle}
             rem_span, rem_edge_a, rem_edge_b = _enclosing_arc(remaining)
-            if rem_span <= 140.0:
+            if rem_span <= 140.0 and _second_largest_gap(remaining) <= CLEAN_MASS_SECOND_GAP_LIMIT:
                 # A multi-planet handle is still a Sling, not a distinct
                 # shape, as long as the handle planets are themselves a
                 # tight cluster (conjunction) rather than two separate
@@ -234,11 +276,14 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
                 # "Stool" configuration (see module docstring), which
                 # this deliberately does NOT recognize as anything but
                 # a fallthrough to the general classification below.
+                # The remaining group must also itself be one clean mass,
+                # not two+ clusters merely left under the span threshold
+                # by removing the handle - see CLEAN_MASS_SECOND_GAP_LIMIT.
                 if _handle_is_opposite(longitudes, handle, remaining) and _handle_is_clustered(longitudes, handle):
                     return {"figure": "sling",
                             "detail": f"bundle ({rem_span:.1f} deg) with a {handle_size}-planet handle ({', '.join(handle)}, in conjunction) standing apart in the gap",
                             "gaps": gaps_report}
-            elif 155.0 <= rem_span <= 205.0 and _is_opposition(remaining[rem_edge_a], remaining[rem_edge_b]):
+            elif 155.0 <= rem_span <= 205.0 and _is_opposition(remaining[rem_edge_a], remaining[rem_edge_b]) and _second_largest_gap(remaining) <= CLEAN_MASS_SECOND_GAP_LIMIT:
                 # Same clustering requirement as the Sling branch above,
                 # and for the same reason - this check was missing here
                 # until Kashnitsky, Saveliy Efremovich (21.03.1952,
