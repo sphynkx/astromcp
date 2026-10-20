@@ -500,6 +500,15 @@ def _max_internal_gap_in_arc(longitudes: Dict[str, float], start_name: str, end_
     return max(b - a for a, b in zip(offsets, offsets[1:]))
 
 
+# How coherent each of Seesaw's two candidate groups must be, relative to
+# the (smaller of the) two gaps dividing them: a group's own largest
+# internal gap must be under this fraction of that defining gap. See the
+# long comment inside _check_seesaw where this is used (Kovalenko/
+# Kashnitsky false positives vs. the genuine Filimonov case) for the
+# real-chart numbers that picked 0.6 specifically.
+SEESAW_GROUP_COHERENCE_RATIO = 0.6
+
+
 def _check_seesaw(longitudes: Dict[str, float], gaps: List[Tuple[float, str, str]]) -> Optional[Dict[str, Any]]:
     """
     See-Saw: planets fall into two groups on roughly opposite sides of
@@ -507,17 +516,55 @@ def _check_seesaw(longitudes: Dict[str, float], gaps: List[Tuple[float, str, str
     each (Jones' own figure, per claytentylor.com's transcription:
     'polarized around opposite ends of a diameter, leaving two vacant
     arcs of from 60 deg to 90 deg at opposite sides'). Implemented as:
-    exactly two gaps in the 50-100 deg range (a bit wider than Jones'
-    own 60-90 to allow for real charts not landing exactly on his
-    illustrative range), together accounting for most of the circle's
-    remaining space once the two planet-groups are removed, and roughly
-    opposite each other (within ~40 deg of true opposition, generous
-    since "opposite sides" was never given a tight orb in any source).
+    the two LARGEST gaps in the whole chart, each at least 50 deg (a
+    bit wider a floor than Jones' own 60-90 to allow for real charts
+    not landing exactly on his illustrative range), roughly opposite
+    each other (within ~40 deg of true opposition, generous since
+    "opposite sides" was never given a tight orb in any source).
+
+    REWORKED from "exactly two gaps fall inside a fixed window" (originally
+    50-100, once widened to 50-115) after Filimonov, Sergey (28.04.1969,
+    noon - no birth time on record) exposed that a fixed window can't
+    work AT ALL here, in either direction: the chart's two real dividing
+    gaps are mercury->moon (111.9 deg) and mars->venus (113.8 deg) - close
+    to each other in size and, per the opposition check below, genuinely
+    close to opposite (20.1 deg off) - splitting the wheel into two
+    compact, visually confirmed poles (4 planets spanning 46.2 deg; 6
+    planets spanning 88.1 deg, with one merely uneven internal gap of
+    57.3 deg between uranus and neptune - see _max_internal_gap_in_arc's
+    coherence check below, which this case passes comfortably: 57.3 is
+    well under the smaller defining gap, 111.9). Widening the window's
+    ceiling to let in 111.9/113.8 ALSO let back in that same 57.3 deg
+    internal gap (it was always inside 50-100 too), giving three matches
+    instead of two and failing the "exactly two" count outright - no
+    single window, however wide, can admit the real pair while excluding
+    that unrelated third gap, because 57.3 sits numerically between parts
+    of the pair rather than outside it. Taking the two LARGEST gaps
+    directly (then checking everything else about them, as before) sidesteps
+    this: the 57.3 deg gap is never a candidate divider at all once 111.9
+    and 113.8 outrank it, and it is only ever seen afterwards by the
+    per-group coherence check as what it actually is - ordinary internal
+    unevenness inside the 6-planet pole, not a third division. Before
+    this rework, the chart fell through to _check_splay instead, which
+    DOES see a gap of that size (treats any gap >=30 deg as a cluster
+    boundary, with no upper limit at all) and misread that same 57.3 deg
+    unevenness as a THIRD genuine cluster boundary - three clusters of
+    sizes [4, 2, 4], satisfying Splay's own "exactly three clusters, each
+    >=2 planets" check even though two of those three "clusters" are
+    really one pole with an uneven middle. Chart classified "splay";
+    correct reading (confirmed directly by the user) is "seesaw". The
+    50 deg floor is kept from the original window (still a meaningful
+    "real vacant arc", not noise) - no ceiling is needed any more: a
+    single dominant (Locomotive-sized) gap just won't have a genuine
+    second, comparably-large, roughly-opposite gap to pair it with, so
+    the opposition and per-group coherence checks below reject those
+    cases on their own merits rather than needing a hardcoded cutoff to
+    pre-filter them out.
     """
-    big_gaps = [(g, a, b) for g, a, b in gaps if 50.0 <= g <= 100.0]
-    if len(big_gaps) != 2:
+    sorted_desc = sorted(gaps, key=lambda g: -g[0])
+    if len(sorted_desc) < 2 or sorted_desc[1][0] < 50.0:
         return None
-    (g1, a1, b1), (g2, a2, b2) = big_gaps
+    (g1, a1, b1), (g2, a2, b2) = sorted_desc[0], sorted_desc[1]
     # midpoints of the two gaps should be roughly opposite each other
     mid1 = (longitudes[a1] + g1 / 2.0) % 360
     mid2 = (longitudes[a2] + g2 / 2.0) % 360
@@ -525,30 +572,55 @@ def _check_seesaw(longitudes: Dict[str, float], gaps: List[Tuple[float, str, str
         return None
 
     # Each of the two "groups" these gaps bound must itself be a real,
-    # reasonably coherent group - not hiding an even-bigger split that
+    # reasonably coherent group, not hiding an even-bigger split that
     # these two gaps alone don't capture. Added after Beletskaya, Irina
     # Evgenyevna (20.11.1965, noon - no birth time on record): Jupiter
     # sits alone, 78.5 deg from the main 8-planet mass on one side and
     # 109.2 deg from Saturn (the mass's far rim planet) on the other -
     # that 109.2 deg gap is the single LARGEST in the whole chart, but
-    # it falls outside this check's 50-100 deg filter window, so the
-    # old code never saw it and happily matched "two gaps, 78.5 and
-    # 55.6, roughly opposite" - reading {Saturn, Jupiter} as one of the
-    # two "groups", when those two planets are actually just the bare
-    # endpoints of an entirely empty 109 deg arc, not a group at all.
-    # Correct reading (confirmed directly by the user, visually and
-    # structurally): a single 9-planet Bucket with Jupiter as the sole
-    # handle (see the matching CLEAN_MASS_BIG_GAP_THRESHOLD fix, needed
-    # for the Bucket branch below to actually accept that remaining
-    # 9-planet mass once Seesaw stops preempting it here). The check
-    # below requires that neither candidate group contains an internal
-    # gap as large as the smaller of the two defining gaps - i.e. that
-    # these two gaps really are the two biggest divisions in the chart,
-    # which is what Jones' own "two vacant arcs" description assumes.
+    # it fell outside the old 50-100 deg filter window, so the old code
+    # never saw it and happily matched "two gaps, 78.5 and 55.6, roughly
+    # opposite" - reading {Saturn, Jupiter} as one of the two "groups",
+    # when those two planets are actually just the bare endpoints of an
+    # entirely empty 109 deg arc, not a group at all. Correct reading
+    # (confirmed directly by the user, visually and structurally): a
+    # single 9-planet Bucket with Jupiter as the sole handle (see the
+    # matching CLEAN_MASS_BIG_GAP_THRESHOLD fix, needed for the Bucket
+    # branch below to actually accept that remaining 9-planet mass once
+    # Seesaw stops preempting it here).
+    #
+    # This started as an ABSOLUTE check (reject if a group's own largest
+    # internal gap is >= the smaller defining gap, i.e. ratio >= 1.0) -
+    # comfortably rejects Beletskaya (ratio 1.96: her bad "group" has an
+    # internal gap of 109.2 against a smaller defining gap of 55.6), but
+    # TOO LAX for two other real cases that the top-2-gaps rework above
+    # (see its own comment) exposed by newly reaching this far at all:
+    #   - Kovalenko, Roman Konstantinovich (10.07.1990, Novosibirsk,
+    #     noon): 108.7/76.3 deg gaps, roughly opposite (0.5 deg off) -
+    #     but EACH group is nearly half again as uneven as its own
+    #     defining gap (internal-gap/defining-gap ratios 0.68 and 0.65).
+    #     Established reading for this chart (see CLEAN_MASS_BIG_GAP_
+    #     THRESHOLD above) is "locomotive" (raw g_max 108.7 deg, over
+    #     this module's own 100 deg Locomotive floor) - a single
+    #     dominant gap, not a real two-pole Seesaw.
+    #   - Kashnitsky, Saveliy Efremovich (21.03.1952, 12:00, Kyiv):
+    #     79.1/72.3 deg gaps, roughly opposite - one group's ratio is
+    #     0.73. Established reading (see the Bucket-branch handle-
+    #     clustering fix above) is "splash" (g_max 79.1 deg).
+    # Replaced with a RATIO check instead: reject if a group's own
+    # largest internal gap is 60% or more of the smaller defining gap.
+    # Filimonov's worse group clears this comfortably (ratio 0.51,
+    # clean margin below 0.6); Kovalenko's better group (0.65) and
+    # Kashnitsky's worse group (0.73) both still correctly fail it. A
+    # genuine two-pole Seesaw's own poles should look clearly MORE
+    # coherent than the arcs separating them, not just technically
+    # smaller - a ratio close to or above 1.0 was never a meaningful
+    # bar for that, which is why it missed both regressions above.
     smaller_defining_gap = min(g1, g2)
-    if _max_internal_gap_in_arc(longitudes, b1, a2) >= smaller_defining_gap:
+    coherence_limit = SEESAW_GROUP_COHERENCE_RATIO * smaller_defining_gap
+    if _max_internal_gap_in_arc(longitudes, b1, a2) >= coherence_limit:
         return None
-    if _max_internal_gap_in_arc(longitudes, b2, a1) >= smaller_defining_gap:
+    if _max_internal_gap_in_arc(longitudes, b2, a1) >= coherence_limit:
         return None
 
     return {
