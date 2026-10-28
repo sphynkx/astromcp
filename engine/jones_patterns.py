@@ -106,6 +106,39 @@ MIDPOINT_ORB = 30.0
 # checked against this real chart rather than picked arbitrarily.
 HANDLE_CLUSTER_ORB = 35.0
 
+# For a MULTI-planet handle only (trivially irrelevant for a single
+# planet - see _handle_bisection_ratio): how close to equal the two
+# "outer" sub-gaps either side of the handle (within the remaining
+# group's own empty arc) must be, expressed as smaller/larger (1.0 =
+# exactly equal). This is the check that was actually verified BY HAND
+# when HANDLE_CLUSTER_ORB was widened above for the Hensel twins - "the
+# two OUTER sub-gaps either side of this Jupiter/Moon pair are 104.1 and
+# 104.9 deg, essentially equal, which is the actual signature of one
+# widened handle roughly bisecting the main gap" - but that reasoning
+# was never actually encoded as a check, only used once to justify the
+# widening itself. It stayed unenforced until Gauquelin, Marie-Francoise
+# (19.06.1929, 4:00, Neuchatel) exposed the gap: Moon+Saturn, 33.2 deg
+# apart (comfortably inside HANDLE_CLUSTER_ORB, and each individually
+# within MIDPOINT_ORB of the remaining mass's own gap midpoint - both
+# existing checks already passed), standing apart from an otherwise-
+# clean 8-planet, 138.0 deg bundle. But the two outer sub-gaps here are
+# 85.0 and 103.9 deg - a visibly lopsided split (ratio 0.818), nothing
+# like Hensel's near-perfect bisection (ratio 0.992) or Ryazanov, Eldar
+# Alexandrovich's own 2-planet handle (Jupiter+Uranus, ratio 0.981,
+# verified separately below). Classified "sling"; the user's own direct
+# read of the real chart is uncertain between Locomotive, See-Saw, and
+# "a very non-standard Sling" - i.e. NOT a confident Sling at all, which
+# is exactly what an unenforced bisection check would miss (every OTHER
+# condition this module checks for a handle still passes). Restricted to
+# handle_size>=2 because a lone single-planet handle can't be "two poles
+# lopsided to one side" in the first place - there's nothing to split
+# unevenly. 0.90 is chosen to keep Hensel (0.992) and Ryazanov (0.981)
+# comfortably clear with margin to spare, while still rejecting
+# Gauquelin's 0.818 by a similar margin on the other side - not sourced
+# to a specific number (same as HANDLE_CLUSTER_ORB itself), checked
+# against these three real charts rather than picked arbitrarily.
+HANDLE_BISECTION_RATIO_MIN = 0.90
+
 
 def _sorted_gaps(longitudes: Dict[str, float]) -> List[Tuple[float, str, str]]:
     """Returns (gap_size, name_of_point_starting_the_gap, name_of_point_ending_the_gap)
@@ -349,7 +382,14 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
                 # The remaining group must also itself be one clean mass,
                 # not two+ clusters merely left under the span threshold
                 # by removing the handle - see CLEAN_MASS_BIG_GAP_THRESHOLD.
-                if _handle_is_opposite(longitudes, handle, remaining) and _handle_is_clustered(longitudes, handle):
+                # A multi-planet handle must also roughly BISECT the gap
+                # rather than sit lopsided to one side of it - see
+                # HANDLE_BISECTION_RATIO_MIN (Gauquelin, Marie-Francoise).
+                if (
+                    _handle_is_opposite(longitudes, handle, remaining)
+                    and _handle_is_clustered(longitudes, handle)
+                    and _handle_bisection_ratio(longitudes, handle, remaining, rem_edge_a, rem_edge_b) >= HANDLE_BISECTION_RATIO_MIN
+                ):
                     return {"figure": "sling",
                             "detail": f"bundle ({rem_span:.1f} deg) with a {handle_size}-planet handle ({', '.join(handle)}, in conjunction) standing apart in the gap",
                             "gaps": gaps_report}
@@ -378,7 +418,13 @@ def classify_jones_figure(longitudes: Dict[str, float]) -> Dict[str, Any]:
                 # (the ordinary case) is unaffected: _handle_is_clustered
                 # returns True trivially for len(handle)<=1, and a real
                 # conjunction-handle still passes for 2-3 planets.
-                if _handle_is_opposite(longitudes, handle, remaining) and _handle_is_clustered(longitudes, handle):
+                # Same bisection requirement as the Sling branch above -
+                # see HANDLE_BISECTION_RATIO_MIN (Gauquelin, Marie-Francoise).
+                if (
+                    _handle_is_opposite(longitudes, handle, remaining)
+                    and _handle_is_clustered(longitudes, handle)
+                    and _handle_bisection_ratio(longitudes, handle, remaining, rem_edge_a, rem_edge_b) >= HANDLE_BISECTION_RATIO_MIN
+                ):
                     return {"figure": "bucket",
                             "detail": f"bowl ({rem_span:.1f} deg span) plus a {handle_size}-planet handle ({', '.join(handle)}, in conjunction) opposite the main group",
                             "gaps": gaps_report}
@@ -482,6 +528,41 @@ def _handle_is_opposite(all_longitudes: Dict[str, float], handle: Tuple[str, ...
         abs(angular_separation(all_longitudes[h], gap_mid)) <= MIDPOINT_ORB
         for h in handle
     )
+
+
+def _handle_bisection_ratio(
+    all_longitudes: Dict[str, float],
+    handle: Tuple[str, ...],
+    remaining: Dict[str, float],
+    edge_a: str,
+    edge_b: str,
+) -> float:
+    """For a multi-planet handle, how evenly it splits the remaining
+    group's own empty arc into two "outer" sub-gaps - the stretch from
+    one edge of the empty arc to the nearest handle point, and the
+    stretch from the farthest handle point to the other edge. Returns
+    smaller/larger (1.0 = a perfect, dead-center bisection).
+
+    Trivially 1.0 for a single-planet handle: with one point there is
+    nothing to split unevenly, and the "lopsided handle" failure mode
+    this function exists to catch has no meaning for a lone planet
+    (see HANDLE_BISECTION_RATIO_MIN for the real-chart history behind
+    this: Hensel twins 0.992, Ryazanov, Eldar Alexandrovich 0.981,
+    both genuine, vs. Gauquelin, Marie-Francoise 0.818, not).
+    """
+    if len(handle) <= 1:
+        return 1.0
+    gap_start = remaining[edge_a]
+    gap_end = remaining[edge_b]
+    gap_total = (gap_end - gap_start) % 360
+    offsets = sorted((all_longitudes[h] - gap_start) % 360 for h in handle)
+    outer1 = offsets[0]
+    outer2 = gap_total - offsets[-1]
+    if outer1 <= 0 or outer2 <= 0:
+        # Degenerate (a handle point sitting exactly on an edge) - don't
+        # let a boundary artifact reject an otherwise fine handle.
+        return 1.0
+    return min(outer1, outer2) / max(outer1, outer2)
 
 
 def _max_internal_gap_in_arc(longitudes: Dict[str, float], start_name: str, end_name: str) -> float:
