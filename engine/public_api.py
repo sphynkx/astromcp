@@ -34,6 +34,7 @@ from .lots import compute_all_lots
 from .fixed_stars import compute_fixed_stars, stars_conjunct_points
 from .jones_patterns import classify_jones_figure, JONES_PLANET_NAMES
 from . import geocode
+from . import ussr_time_tables
 
 logger = logging.getLogger("astromcp")
 
@@ -143,13 +144,25 @@ def build_full_report(
 
     Timezone: tz_str/tz_offset_minutes as usual. If NEITHER is given and
     coordinates are available (explicit or resolved from a city), this
-    falls back to timezonefinder's MODERN zone-boundary lookup as a
-    convenience default - this is explicitly flagged in the response's
-    meta.tz_source as "auto_modern_only" so the caller can tell the
-    difference. For historical dates, always pass tz_str/tz_offset_minutes
-    explicitly instead of relying on this fallback (see geocode.py and
-    help_texts/rectification.md's timezone notes - the same Soviet
-    decree-time pitfall applies here).
+    first checks engine/ussr_time_tables.py's verified city-table overrides
+    for a pre-1992, former-USSR-region date (see that module - it is the
+    Zaytsev & Kutalev historical correction-table data, currently seeded
+    with a small, hand-verified set of cities; more arrive as the full
+    ~4269-entry city list gets manually corrected). A match is used
+    automatically and flagged in the response as meta.tz_note =
+    "auto_ussr_historical_table" with meta.tz_table_id naming the table.
+    Failing that, this falls back to timezonefinder's MODERN zone-boundary
+    lookup as a convenience default - flagged as meta.tz_note =
+    "auto_modern_only". If that fallback additionally lands in the
+    pre-1992 former-USSR danger zone with no verified override available,
+    tz_note is instead "auto_modern_only_UNVERIFIED_USSR_ERA" - a signal
+    that this specific result's timezone has NOT been historically
+    verified and may be wrong (see ussr_time_tables.py's module docstring
+    and the Kolesov/Kostroma case for why this region/era combination is
+    risky). For historical dates, passing tz_str/tz_offset_minutes
+    explicitly (after independently verifying the real historical offset)
+    remains the safest choice - see geocode.py and
+    help_texts/rectification.md's timezone notes.
 
     lots - which registered Lots (engine/lots.LOT_REGISTRY) to compute,
     when include_arabic_parts is True. Defaults to just "part_of_fortune"
@@ -167,16 +180,46 @@ def build_full_report(
         _resolve_location(lat, lng, city, country_code)
 
     tz_note = "explicit"
+    tz_table_id = None
     if tz_str is None and tz_offset_minutes is None:
-        auto_tz = geocode.timezone_for_coordinates(resolved_lat, resolved_lng)
-        if auto_tz is None:
-            raise ValueError(
-                "No tz_str/tz_offset_minutes given, and timezonefinder "
-                "could not resolve a zone for these coordinates - pass "
-                "a timezone explicitly."
-            )
-        tz_str = auto_tz
-        tz_note = "auto_modern_only"  # see docstring - not safe for historical dates
+        # Try the verified USSR-era historical-table override first (see
+        # docstring above and ussr_time_tables.py) - matches on whichever
+        # city name the caller gave (raw `city` param) or the name
+        # geonamescache resolved it to, whichever one happens to be a key
+        # in CITY_TABLE_OVERRIDES.
+        ussr_result = ussr_time_tables.resolve_ussr_historical_offset(
+            year, month, day, hour, minute,
+            lat=resolved_lat, lng=resolved_lng,
+            city=city or resolved_city_name,
+        )
+        if ussr_result.matched:
+            tz_offset_minutes = ussr_result.offset_minutes
+            tz_table_id = ussr_result.table_id
+            tz_note = "auto_ussr_historical_table"
+        else:
+            auto_tz = geocode.timezone_for_coordinates(resolved_lat, resolved_lng)
+            if auto_tz is None:
+                raise ValueError(
+                    "No tz_str/tz_offset_minutes given, and timezonefinder "
+                    "could not resolve a zone for these coordinates - pass "
+                    "a timezone explicitly."
+                )
+            tz_str = auto_tz
+            if ussr_result.in_danger_zone:
+                # Pre-1992, former-USSR region, but no verified per-city
+                # table known yet - the modern-zone fallback below is used,
+                # but flagged as unverified rather than silently trusted.
+                tz_note = "auto_modern_only_UNVERIFIED_USSR_ERA"
+                logger.warning(
+                    f"build_full_report: using unverified modern-zone "
+                    f"fallback ({auto_tz}) for a pre-1992 former-USSR-area "
+                    f"date ({year}-{month:02d}-{day:02d}) with no "
+                    f"ussr_time_tables override for city={city!r}/"
+                    f"{resolved_city_name!r} - historical accuracy not "
+                    f"confirmed, see meta.tz_note in the response."
+                )
+            else:
+                tz_note = "auto_modern_only"  # see docstring
 
     subject, tz_used, tz_source = build_subject(
         name, year, month, day, hour, minute, second,
@@ -281,12 +324,16 @@ def build_full_report(
         "tz_used": tz_used,
         "tz_source": tz_source,
         "tz_note": tz_note,
+        "tz_table_id": tz_table_id,
         "house_system": house_system,
         "zodiac_type": zodiac_type,
         "input_datetime": f"{year:04d}-{month:02d}-{day:02d} {hour:02d}:{minute:02d}:{second:02d}",
-        "schema_version": 3,  # v2->v3: added top-level "Jones_figure"
-                              # (Marc Edmund Jones planetary pattern
-                              # classification) - purely additive, does
-                              # not change any existing field's shape.
+        "schema_version": 4,  # v2->v3: added top-level "Jones_figure".
+                              # v3->v4: added meta.tz_table_id and the
+                              # "auto_ussr_historical_table" /
+                              # "auto_modern_only_UNVERIFIED_USSR_ERA"
+                              # meta.tz_note values (see
+                              # ussr_time_tables.py) - purely additive,
+                              # does not change any existing field's shape.
     }
     return result

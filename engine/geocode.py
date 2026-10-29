@@ -61,6 +61,40 @@ forget:
    convenience default only. For historical dates, pass tz_str or
    tz_offset_minutes explicitly after verifying the actual historical
    offset independently - do not trust this module for that.
+
+   A second documented real case, and the more insidious one: even
+   picking the "obviously right" NAMED zone from a city can be wrong,
+   because Python's zoneinfo/IANA "Europe/Moscow" is not actually the
+   full historical record for every place inside that zone's modern
+   boundary - it's Moscow's OWN history, silently applied to everywhere
+   tzdata hasn't bothered to split out. Kolesov, Evgeny Nikolaevich
+   (30.04.1951, 7:07, Kostroma) exposed this: zoneinfo's Europe/Moscow
+   says a flat UTC+3 ("decree time") straight through from 21.06.1930
+   to the 1981 introduction of seasonal DST, with no break - so passing
+   tz_str="Europe/Moscow" for this chart silently gives UTC+3. But
+   Kostroma Oblast was NOT administratively part of Moscow's own 2nd
+   time belt in 1951 - per the official 1956 RSFSR time-belt map
+   (Appendix 2, digitized at worldtimezone.com), it was listed under
+   the 3rd belt, one hour ahead of Moscow, only folded into "Moscow
+   time" by a 1956/57 reform (itself only partially enforced in 1956,
+   per IANA's own tz-list archives - this is a genuinely messy area of
+   Soviet administrative history, not a clean cutover). So the
+   decree-time offset actually in effect for Kostroma on this date was
+   UTC+4, not UTC+3 - confirmed independently by a commercial
+   astrology program's own historical timezone table (which carries
+   this as a distinct "USSR, 3rd belt" entry: +4 from 21.06.1930 to
+   01.12.1956, +3 after) AND by the resulting Ascendant (18deg04' Gemini
+   at UTC+4) matching what students of this real (and real-life
+   astrologer) person's chart have independently arrived at, to the
+   arcminute - while Europe/Moscow's UTC+3 gives a wrong Ascendant a
+   full sign-and-change away (3deg04' Cancer). The lesson generalizes:
+   for ANY Soviet-era date, resolving a NAMED zone from coordinates
+   (whether via timezonefinder or by hand-picking the "obvious"
+   Europe/<capital> zone) is not enough on its own - the zone's
+   recorded history has to actually cover the specific place, not just
+   the region's modern-day largest city. When unsure, an explicit
+   tz_offset_minutes sourced from an actual historical belt map (not
+   a modern zone name) is the safer choice.
 3. This module's Russian-language support has NOT been independently
    verified against the actual bundled geonamescache dataset in this
    session (no network access to install and inspect it) - the claim

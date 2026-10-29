@@ -99,6 +99,9 @@ Two interfaces share this one process and port:
         ├── display.py          # human-readable console summaries
         ├── geocode.py          # offline city->coords (geonamescache) and coords->tz
         │                       # (timezonefinder) lookups - used only by public_api.py
+        ├── ussr_time_tables.py # historical UTC-offset correction tables for the
+        │                       # former USSR (Zaytsev & Kutalev reference book) -
+        │                       # see "Historical timezones in the former USSR" below
         ├── fixed_stars.py      # fixed-star positions via pyswisseph, used only by
         │                       # public_api.py - not used by any rectification tool
         ├── public_api.py       # builds the flat JSON for the /astro REST endpoint
@@ -163,6 +166,62 @@ Response shape (see `engine/public_api.py` for the full docstring):
       "fixed_star_conjunctions": [{"star": "...", "point": "...", "orb": ...}],
       "meta": {"schema_version": 2, ...}
     }
+
+### Historical timezones in the former USSR
+
+`GET /astro` (and `build_full_report()` directly) can auto-resolve a
+timezone from lat/lng (or a city name) when the caller gives neither
+`tz_str` nor `tz_offset_minutes`. For a modern date this is fine -
+`timezonefinder` resolves the current IANA zone boundary and that's that.
+For a date before the USSR's collapse, it is frequently **wrong**: Python's
+`zoneinfo`/IANA zones (e.g. `Europe/Moscow`) only encode the *capital's*
+own history, silently applied to every place inside that zone's *modern*
+boundary - but decree-time status and time-belt membership were assigned
+per oblast, not per republic, and many oblasts differed from their capital
+for years or decades. The case that surfaced this: Kolesov, Evgeny
+Nikolaevich (30.04.1951, 7:07, Kostroma) - `Europe/Moscow` gives a flat
+UTC+3 straight through 1930-1981 with no break, but Kostroma Oblast was
+administratively in the USSR's 3rd time belt (not Moscow's 2nd) until a
+1956/57 reform, so the real decree-time offset there in 1951 was UTC+4.
+UTC+3 puts the Ascendant a full sign away from what it should be.
+
+`engine/ussr_time_tables.py` is this project's fix: historical UTC-offset
+correction tables transcribed from A. Zaytsev (author of the ZET astrology
+program) and D. Kutalev's reference book assigning each of ~4269 former-
+USSR settlements to one of ~85 correction tables, based on real archival
+research rather than a blanket zone/capital rule (see `BIBLIOGRAPHY.md`).
+81 of the 85 tables are transcribed and verified (by eye against the book's
+own page images, not trusted OCR - see that module's docstring for why).
+
+**This is wired in automatically, not just a manually-invoked lookup.**
+When `build_full_report()` gets neither `tz_str` nor `tz_offset_minutes`,
+it now:
+
+1. Checks `ussr_time_tables.CITY_TABLE_OVERRIDES` for the resolved city
+   name. A match uses that table's offset automatically and the response
+   carries `meta.tz_note = "auto_ussr_historical_table"` and
+   `meta.tz_table_id` naming the table used.
+2. Otherwise falls back to `timezonefinder`'s modern-zone lookup, as
+   before. If the date is pre-1992 and the coordinates fall in/near the
+   former USSR but no verified override was found, the response is
+   flagged `meta.tz_note = "auto_modern_only_UNVERIFIED_USSR_ERA"` - a
+   signal (also logged server-side) that this specific result's timezone
+   has **not** been historically verified and may be wrong, rather than
+   silently trusting the modern zone. Otherwise it's the plain
+   `"auto_modern_only"` note as before.
+
+`CITY_TABLE_OVERRIDES` is currently seeded with only the one fully-
+confirmed case (Kostroma -> table "13") - the per-city list from the
+source book's own pages (~4269 entries) has not been transcribed yet
+(OCR there is unreliable enough that a wrong digit would silently corrupt
+a chart; see the module docstring). Each additional city added to
+`CITY_TABLE_OVERRIDES` becomes live immediately, no other code changes
+needed. Until a city is in that table, `/astro` callers for a pre-1992
+former-USSR date should pass `tz_offset_minutes` explicitly after looking
+up the right table id (from the book, or from ZET9's own per-city
+database) and calling `ussr_time_tables.ussr_offset_minutes(table_id, ...)`
+themselves, or via a rectification-tool call where that's already standard
+practice (see `geocode.py`'s own timezone caveats below).
 
 ### Lots / Arabic Parts
 
@@ -709,6 +768,14 @@ protocol's session/SSE handshake):
   which is well-maintained but may not capture every obscure historical
   administrative change. Use `tz_offset_minutes` to override when you've
   verified the correct historical offset independently.
+- `engine/ussr_time_tables.py`'s automatic former-USSR correction (see
+  "Historical timezones in the former USSR" above) only auto-applies for
+  cities already in `CITY_TABLE_OVERRIDES` (currently just Kostroma). The
+  source book's full ~4269-city list (which table applies to which city)
+  has not been transcribed - OCR there is unreliable enough to risk
+  silently corrupting a chart. Planned: a manual verification pass (by
+  the project owner, reading the book's page images directly) to fill
+  this in city by city.
 - `rectif_scan` cost scales linearly with `candidates × events`; very
   wide ranges at fine step sizes with many events can take minutes -
   tune `proxy_read_timeout` accordingly, or narrow the range first with

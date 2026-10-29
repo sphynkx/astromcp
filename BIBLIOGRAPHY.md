@@ -296,6 +296,45 @@ completion symbolism note, Hviyuzova on Shestopalov's horary method,
 Robson, Middleton, and a large batch of shorter articles (.htm files) on
 specific horary questions.
 
+## Timezone/historical data sources
+
+Not rectification methodology - a factual reference used for correctly
+converting local civil time to UTC for former-USSR birthplaces/events on
+historical (pre-1992) dates, where Python's/IANA's own tzdata is
+insufficient (see `engine/ussr_time_tables.py` and the README's
+"Historical timezones in the former USSR" section for the full
+technical story).
+
+**Zaytsev, A. & Kutalev, D.** "Справочник для определения поправок для
+перевода местного времени во всемирное для населённых пунктов бывшего
+СССР" (Reference book of time corrections for converting local time to
+Universal Time for populated places of the former USSR). Zaytsev is the
+author of the ZET astrology program, which ships this same data built in
+(its "USSR<N>"-numbered timezone-correction tables) - cross-validated
+against a live ZET9 install's own table during this project's work and
+found to match exactly. — Source for `engine/ussr_time_tables.py`:
+~85 chronological correction tables (absolute UTC-offset transitions plus
+three successive seasonal-DST rule regimes, 1981-96) covering ~4269
+former-USSR settlements, each assigned to its table by real archival
+research into decree-time and time-belt administrative history rather
+than a blanket zone/capital assumption. The case that motivated pulling
+this in: Kolesov, Evgeny Nikolaevich (30.04.1951, 7:07, Kostroma) - this
+project's own `Europe/Moscow`-based calculation gave a flat UTC+3 for
+that date/place (matching Moscow's own uninterrupted decree-time
+history), but Kostroma Oblast was administratively in the USSR's 3rd time
+belt (not Moscow's 2nd) until a 1956/57 reform, making the real offset
+UTC+4 - confirmed both by this book's table 13 and by the resulting
+Ascendant matching, to the arcminute, what the chart's real-life subject
+(an astrologer) and his students had independently arrived at. 81 of the
+book's ~85 tables have been transcribed into `ussr_time_tables.py` so
+far, verified by direct visual inspection of the book's own page images
+(never trusted from raw OCR - digit/letter confusion in dense tables like
+these would silently produce a wrong chart). The book's own per-city
+list (~4269 entries across ~33 pages, mapping each settlement to its
+table number) has NOT yet been transcribed for the same reason - that
+pass is planned as a manual correction of an OCR draft rather than
+automated extraction.
+
 ## Consulted but not used
 
 **Boguzky.** "Гермес Трисмегист" (Hermes Trismegistus). — Turned out to
