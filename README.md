@@ -193,35 +193,39 @@ research rather than a blanket zone/capital rule (see `BIBLIOGRAPHY.md`).
 81 of the 85 tables are transcribed and verified (by eye against the book's
 own page images, not trusted OCR - see that module's docstring for why).
 
+`engine/ussr_city_table.py` carries the book's own city-coordinate list -
+4254 of its ~4269 settlements (city name -> region code, coordinates,
+table id), OCR'd and then fully hand-verified page by page against the
+book's own page images (15 entries that stayed genuinely ambiguous after
+that review - an "l" vs "1" misread, a couple of malformed codes - were
+excluded rather than shipped with a guess; see that file's docstring and
+`tools/generate_ussr_city_table.py`, which regenerates it from a
+corrected source list and is the only supported way to fix an entry -
+never hand-edit the generated file).
+
 **This is wired in automatically, not just a manually-invoked lookup.**
 When `build_full_report()` gets neither `tz_str` nor `tz_offset_minutes`,
 it now:
 
-1. Checks `ussr_time_tables.CITY_TABLE_OVERRIDES` for the resolved city
-   name. A match uses that table's offset automatically and the response
-   carries `meta.tz_note = "auto_ussr_historical_table"` and
-   `meta.tz_table_id` naming the table used.
+1. Checks `ussr_time_tables.CITY_TABLE_OVERRIDES` (a small set of cases
+   independently double-verified beyond the book itself, currently just
+   Kostroma) and then the bulk `ussr_city_table.CITY_TABLE` for the
+   resolved city name. A match uses that table's offset automatically and
+   the response carries `meta.tz_note = "auto_ussr_historical_table"` and
+   `meta.tz_table_id` naming the table used. ~160 names in the book belong
+   to more than one real place (e.g. "Актас"/"Акташ"/"Актогай" each appear
+   more than once with different coordinates) - the resolver only picks
+   one automatically when the caller's own lat/lng clearly singles it out
+   (nearest candidate within 120km and clearly closer than the next one);
+   otherwise it falls through to step 2 rather than guessing.
 2. Otherwise falls back to `timezonefinder`'s modern-zone lookup, as
    before. If the date is pre-1992 and the coordinates fall in/near the
-   former USSR but no verified override was found, the response is
+   former USSR but no table could be confidently resolved, the response is
    flagged `meta.tz_note = "auto_modern_only_UNVERIFIED_USSR_ERA"` - a
    signal (also logged server-side) that this specific result's timezone
    has **not** been historically verified and may be wrong, rather than
    silently trusting the modern zone. Otherwise it's the plain
    `"auto_modern_only"` note as before.
-
-`CITY_TABLE_OVERRIDES` is currently seeded with only the one fully-
-confirmed case (Kostroma -> table "13") - the per-city list from the
-source book's own pages (~4269 entries) has not been transcribed yet
-(OCR there is unreliable enough that a wrong digit would silently corrupt
-a chart; see the module docstring). Each additional city added to
-`CITY_TABLE_OVERRIDES` becomes live immediately, no other code changes
-needed. Until a city is in that table, `/astro` callers for a pre-1992
-former-USSR date should pass `tz_offset_minutes` explicitly after looking
-up the right table id (from the book, or from ZET9's own per-city
-database) and calling `ussr_time_tables.ussr_offset_minutes(table_id, ...)`
-themselves, or via a rectification-tool call where that's already standard
-practice (see `geocode.py`'s own timezone caveats below).
 
 ### Lots / Arabic Parts
 
@@ -768,14 +772,13 @@ protocol's session/SSE handshake):
   which is well-maintained but may not capture every obscure historical
   administrative change. Use `tz_offset_minutes` to override when you've
   verified the correct historical offset independently.
-- `engine/ussr_time_tables.py`'s automatic former-USSR correction (see
-  "Historical timezones in the former USSR" above) only auto-applies for
-  cities already in `CITY_TABLE_OVERRIDES` (currently just Kostroma). The
-  source book's full ~4269-city list (which table applies to which city)
-  has not been transcribed - OCR there is unreliable enough to risk
-  silently corrupting a chart. Planned: a manual verification pass (by
-  the project owner, reading the book's page images directly) to fill
-  this in city by city.
+- `engine/ussr_city_table.py` covers 4254 of the source book's ~4269
+  settlements (see "Historical timezones in the former USSR" above); 15
+  entries were excluded after a full manual review left them genuinely
+  ambiguous (an "l"/"1" misread or a malformed code), and a city not in
+  the book at all (too small to be listed) still falls back to the
+  unverified-modern-zone path. Fix via `tools/generate_ussr_city_table.py`
+  and a corrected source list if any of this turns out to matter.
 - `rectif_scan` cost scales linearly with `candidates × events`; very
   wide ranges at fine step sizes with many events can take minutes -
   tune `proxy_read_timeout` accordingly, or narrow the range first with

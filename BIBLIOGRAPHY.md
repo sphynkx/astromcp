@@ -331,9 +331,18 @@ far, verified by direct visual inspection of the book's own page images
 (never trusted from raw OCR - digit/letter confusion in dense tables like
 these would silently produce a wrong chart). The book's own per-city
 list (~4269 entries across ~33 pages, mapping each settlement to its
-table number) has NOT yet been transcribed for the same reason - that
-pass is planned as a manual correction of an OCR draft rather than
-automated extraction.
+region code, coordinates and table number) has since been transcribed
+into `engine/ussr_city_table.py` the same careful way: an OCR draft
+(tesseract, multi-script) with a deterministic repair pass for the
+systematic digit/letter confusions (the book's "n"/"e" degree-minute
+separators are routinely misread as stray digits, and Latin region codes
+get forced into Cyrillic lookalikes), then a full manual read-through
+against the book's own page images by the project owner. 4254 of the
+~4269 entries made it in; 15 stayed genuinely unresolved after that
+review (an "l"/"1" misread the font makes genuinely ambiguous, a couple
+of malformed codes, one still-corrupted token) and were excluded rather
+than shipped with a guess - see `tools/generate_ussr_city_table.py` and
+that file's own docstring for the itemized list.
 
 ## Consulted but not used
 

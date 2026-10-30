@@ -28,18 +28,22 @@ HOW TO USE:
 Then pass that as tz_offset_minutes to rectif_chart - NOT tz_str, since
 these offsets are not named IANA zones.
 
-FINDING THE RIGHT TABLE NUMBER FOR A CITY: the book's own city-coordinate
-tables (its pages with ~4269 settlements, one region-code + table-number
-per city) have NOT been transcribed here - OCR of that 33-page listing is
-unverified and digit/letter errors there would silently corrupt results,
-unlike the correction tables below (which were checked by eye against
-page images, row by row, specifically because a wrong digit here is a
-wrong chart). For now, look up the city's table number from the source
-book directly (or from ZET9's own per-city database, which encodes the
-same information - see its "USSR<N>" window, exactly as photographed in
-the Kolesov case) and pass that table id in. REGION_CODES below (also
-checked by eye) at least identifies which oblast/republic a 2-4 letter
-code refers to, which narrows things down even without the per-city list.
+FINDING THE RIGHT TABLE NUMBER FOR A CITY: engine/ussr_city_table.py now
+carries the book's own city-coordinate list too (its pages with ~4269
+settlements, one region-code + table-number per city) - 4254 of them,
+OCR'd then fully hand-verified page by page against the book's own page
+images (not trusted from OCR alone - see that file's docstring for the
+15 entries that stayed genuinely unresolved and were excluded rather
+than guessed at). resolve_ussr_historical_offset() below is the normal
+entry point - call it with whatever the caller has (city name and/or
+lat/lng) and it does this lookup automatically, including picking the
+right candidate when a name is ambiguous (~160 names in the book belong
+to more than one real place, e.g. "Актас"/"Акташ"/"Актогай" each appear
+more than once). Calling ussr_offset_minutes() with a table_id directly
+(as in the usage example above) is still useful when you already know
+the table id from some other source (ZET9's own per-city database, or
+the printed book itself) - REGION_CODES below (also checked by eye)
+identifies which oblast/republic a 2-4 letter code refers to.
 
 DATA MODEL: each table is a chronological list of transition rows. A row
 is either (y, m, d, hh, mm, offset_minutes) - an absolute offset that
@@ -1159,16 +1163,23 @@ TABLES: Dict[str, List[Row]] = {
 # engine/public_api.py's build_full_report() for where this is actually
 # wired into the request path.
 
-# city name (lowercase; include both Russian and common English/translit
-# spellings so it matches whatever geonamescache/the caller happens to use)
-# -> table_id. Grow this as more cities get manually verified against the
-# source book (see module docstring's FINDING THE RIGHT TABLE NUMBER
-# section) - each entry here becomes immediately live with no other code
-# changes, since resolve_ussr_historical_offset() below just looks it up.
+# Small, hand-verified overrides (lowercase city name -> table_id),
+# reserved for cases independently double-checked against a SECOND
+# source beyond the book itself (Kostroma was additionally confirmed via
+# ZET9's own table and the resulting Ascendant matching a real person's
+# documented chart - see module docstring and geocode.py). Checked
+# before the bulk CITY_TABLE below, and wins over it on a clash. Grow
+# this only for cases worth that extra scrutiny; everything else belongs
+# in the bulk table.
 CITY_TABLE_OVERRIDES: Dict[str, str] = {
     "кострома": "13",
     "kostroma": "13",
 }
+
+try:
+    from .ussr_city_table import CITY_TABLE, CityEntry  # noqa: F401
+except ImportError:
+    CITY_TABLE = {}
 
 # Rough bounding box for "could plausibly be in the former USSR" - NOT an
 # administrative boundary (it also covers bits of neighboring countries,
@@ -1194,6 +1205,55 @@ def _looks_like_former_ussr(lat: float, lng: float) -> bool:
     return lat_min <= lat <= lat_max and lng_min <= lng <= lng_max
 
 
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    from math import radians, sin, cos, asin, sqrt
+    r = 6371.0
+    p1, p2 = radians(lat1), radians(lat2)
+    dp = radians(lat2 - lat1)
+    dl = radians(lon2 - lon1)
+    a = sin(dp / 2) ** 2 + cos(p1) * cos(p2) * sin(dl / 2) ** 2
+    return 2 * r * asin(sqrt(a))
+
+
+# How close the caller's coordinates must be to a CITY_TABLE candidate's
+# own (book-printed, arcminute-precision) coordinates to accept it as a
+# confident match when a name has more than one candidate (e.g. the
+# several places in the former USSR named "Актас"). Generous enough to
+# absorb real differences between the book's coordinates and whatever
+# geocoder gave the caller its lat/lng (the book places a city by its
+# historical center, not by a modern database's point), but tight enough
+# that two candidates genuinely far apart (different republics, as is
+# usually the case for a repeated name here) aren't confused.
+_DISAMBIGUATION_MAX_KM = 120.0
+# The nearest candidate must also be clearly closer than the next-nearest
+# one (not just nearest by a hair) before being trusted automatically.
+_DISAMBIGUATION_MARGIN_RATIO = 2.0
+
+
+def _pick_city_candidate(candidates, lat: Optional[float], lng: Optional[float]):
+    """
+    candidates: list of CityEntry for one (lowercased) city name.
+    Returns the single CityEntry to use, or None if it can't be narrowed
+    down confidently (never guesses among genuinely-tied candidates).
+    """
+    if len(candidates) == 1:
+        return candidates[0]
+    if lat is None or lng is None:
+        return None
+    ranked = sorted(
+        candidates,
+        key=lambda c: _haversine_km(lat, lng, c.lat, c.lon),
+    )
+    nearest, runner_up = ranked[0], ranked[1]
+    nearest_km = _haversine_km(lat, lng, nearest.lat, nearest.lon)
+    runner_up_km = _haversine_km(lat, lng, runner_up.lat, runner_up.lon)
+    if nearest_km > _DISAMBIGUATION_MAX_KM:
+        return None
+    if runner_up_km < nearest_km * _DISAMBIGUATION_MARGIN_RATIO:
+        return None  # too close a call between two real candidates
+    return nearest
+
+
 def resolve_ussr_historical_offset(
     year: int, month: int, day: int, hour: int, minute: int = 0,
     lat: Optional[float] = None, lng: Optional[float] = None,
@@ -1205,13 +1265,22 @@ def resolve_ussr_historical_offset(
     module's tables are even relevant, and if so, whether a verified
     table is known for this specific city.
 
+    Lookup order: the small hand-double-verified CITY_TABLE_OVERRIDES
+    first, then the bulk CITY_TABLE (engine/ussr_city_table.py, generated
+    from the source book's own city list - see that file's docstring).
+    A city name with more than one real-world candidate in the book (not
+    rare - ~160 names in this dataset) is only resolved automatically
+    when the caller's own lat/lng clearly singles one out (see
+    _pick_city_candidate) - otherwise this falls through to the
+    danger-zone flag below rather than guessing which one was meant.
+
     Returns a ResolvedOffset with exactly one of these outcomes:
-      - matched=True:  a verified CITY_TABLE_OVERRIDES entry was found and
-                        offset_minutes is a trustworthy historical value -
-                        use it as tz_offset_minutes.
+      - matched=True:  a verified table was found and offset_minutes is a
+                        trustworthy historical value - use it as
+                        tz_offset_minutes.
       - matched=False, in_danger_zone=True: the date is pre-1992 and the
                         coordinates fall inside the former-USSR bounding
-                        box, but no verified per-city table is known yet -
+                        box, but no table could be confidently resolved -
                         offset_minutes is None, caller should warn rather
                         than silently trust a modern-zone fallback.
       - matched=False, in_danger_zone=False: outside the relevant time
@@ -1221,6 +1290,7 @@ def resolve_ussr_historical_offset(
     target = datetime(year, month, day, hour, minute)
 
     key = (city or "").strip().lower()
+
     if key in CITY_TABLE_OVERRIDES:
         table_id = CITY_TABLE_OVERRIDES[key]
         try:
@@ -1230,6 +1300,17 @@ def resolve_ussr_historical_offset(
             # date predates this table's earliest row - fall through to
             # the generic danger-zone check below rather than raising.
             pass
+
+    if key in CITY_TABLE:
+        candidate = _pick_city_candidate(CITY_TABLE[key], lat, lng)
+        if candidate is not None:
+            try:
+                offset = ussr_offset_minutes(
+                    candidate.table_id, year, month, day, hour, minute,
+                )
+                return ResolvedOffset(True, offset, candidate.table_id, False)
+            except ValueError:
+                pass
 
     in_danger_zone = target < USSR_ERA_CUTOFF and lat is not None and lng is not None \
         and _looks_like_former_ussr(lat, lng)
