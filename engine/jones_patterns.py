@@ -253,19 +253,40 @@ def _internal_big_gap_count(longitudes: Dict[str, float], threshold: float) -> i
 #   with an unevenly-filled stretch, which is well within how loosely
 #   Jones' own Bowl/Bundle were ever defined to begin with.
 #
-#   40 deg is kept from the original ceiling's own reasoning (still
+#   40 deg was kept from the original ceiling's own reasoning (still
 #   comfortably above HANDLE_CLUSTER_ORB's 35 deg handle-width
-#   tolerance) and sits cleanly between Beletskaya's single qualifying
+#   tolerance) and sat cleanly between Beletskaya's single qualifying
 #   gap (55.6, counted) and her next one (34.4, not counted), while
 #   still catching BOTH of Kovalenko's two qualifying gaps (76.3 and
 #   49.7 are both > 40, so his count is 2, correctly rejected). The
 #   Ryazanov, Eldar Alexandrovich case that motivated the earlier 40->43
 #   widening (remaining mass's own largest internal gap 42.2 deg,
-#   pluto->neptune) is also unaffected by reverting to 40 here: 42.2 is
-#   its ONLY internal gap anywhere near large (next is 31.2), so its
-#   count is 1 either way - the count-based rule admits it without
-#   needing that widening at all.
-CLEAN_MASS_BIG_GAP_THRESHOLD = 40.0
+#   pluto->neptune) was also unaffected by reverting to 40: 42.2 is its
+#   ONLY internal gap anywhere near large (next is 31.2), so its count
+#   is 1 either way - the count-based rule admits it without needing
+#   that widening at all.
+#
+# WIDENED from 40 to 48 after Stewart, Patrick (13.07.1940, 17:00,
+# Mirfield) - this is the DIRECT Bundle/Bowl check on the full 10-planet
+# chart (no handle removed, unlike every case above), occupied span
+# 177.8 deg bounded by Moon (219.2)/Jupiter (41.4), 2.2 deg off exact
+# opposition - a Bowl confirmed both by the user's own eye and
+# independently by other astro software. But the span's own internal
+# structure has TWO comparably-sized gaps just over the old 40 ceiling:
+# mars->neptune (46.6) and neptune->moon (46.1), each on its own just a
+# normal bit of unevenness near the sparser end of a near-half-wheel
+# Bowl (same shape as Beletskaya's single 55.6 deg gap, just split into
+# two smaller ones by Neptune sitting roughly between them rather than
+# right at the rim) - but together they tripped the >1-gap "hidden
+# extra cluster" rule and kicked the chart to Locomotive instead. 48 is
+# chosen to admit both of these with a small margin (1.4 deg) while
+# staying a full 1.7 deg clear of Kovalenko's smaller qualifying gap
+# (49.7 - his pair still correctly counts as 2 gaps over this new
+# threshold, so he is still rejected). Every other case cited above
+# keeps a comfortable margin from 48 either way (Beletskaya's 55.6 vs.
+# her 34.4; Ryazanov's 42.2, now simply not counted at all, same net
+# result as before), so none of them flip.
+CLEAN_MASS_BIG_GAP_THRESHOLD = 48.0
 
 
 def _is_one_clean_mass(longitudes: Dict[str, float]) -> bool:
