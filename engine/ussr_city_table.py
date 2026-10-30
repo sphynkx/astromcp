@@ -8,8 +8,8 @@ tools/citylist_source/*.txt and rerun
 tools/generate_ussr_city_table.py instead, so corrections stay
 traceable to an actual read of the book.
 
-4254 entries covering 4039 distinct city names
-(160 names are ambiguous - more than one real place in
+4269 entries covering 4052 distinct city names
+(161 names are ambiguous - more than one real place in
 the book shares that name, e.g. "Актас"/"Акташ"/"Актогай" each
 appear more than once with different coordinates and different
 table numbers). CITY_TABLE therefore maps each name to a LIST of
@@ -17,7 +17,7 @@ candidates; engine/ussr_time_tables.py's resolver picks among
 them by nearest coordinates to whatever lat/lng the caller gave,
 and refuses to guess if it can't confidently narrow it to one.
 
-15 entries from the source list were excluded
+0 entries from the source list were excluded
 rather than shipped with a guess - each had an unresolved l/1
 OCR ambiguity, a malformed region code, or leftover corruption
 that neither OCR nor the project owner's own read-through could
@@ -90,6 +90,7 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'аккерман': [CityEntry('UAOD', 46.2, 30.35, '09')],
     'аккермановка': [CityEntry('RUOE', 51.2333, 58.25, '28')],
     'акколь': [CityEntry('KZDM', 43.4167, 70.7833, '38')],
+    'акмолинск': [CityEntry('KZCE', 51.1667, 71.5, '38')],
     'аксай': [CityEntry('KZUR', 51.15, 53.0, '20'), CityEntry('RURO', 47.25, 39.8667, '79')],
     'аксаково': [CityEntry('RUBA', 54.0333, 54.15, '28')],
     'аксарка': [CityEntry('RUTM', 66.6, 67.7667, '32')],
@@ -401,6 +402,7 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'баутино': [CityEntry('KZMA', 44.55, 50.25, '84')],
     'бахарден': [CityEntry('TMAS', 38.4667, 57.4, '69')],
     'бахардок': [CityEntry('TMAS', 38.7833, 58.4833, '69')],
+    'бахмач': [CityEntry('UACG', 51.1833, 32.75, '09')],
     'бахт': [CityEntry('UZSY', 40.7167, 68.7, '36')],
     'бахчисарай': [CityEntry('UAKR', 44.75, 33.8833, '62')],
     'башмаково': [CityEntry('RUPN', 53.2, 43.0333, '13')],
@@ -418,6 +420,7 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'безмеин': [CityEntry('TMAS', 38.0833, 58.2, '69')],
     'безыменное': [CityEntry('UADN', 47.1, 37.9333, '12')],
     'бейнеу': [CityEntry('KZMA', 45.25, 55.1167, '84')],
+    'бекабад': [CityEntry('UZTA', 40.2167, 69.2333, '39')],
     'бекдаш': [CityEntry('TMKV', 41.5667, 52.5333, '69')],
     'беково': [CityEntry('RUPN', 52.4667, 43.7167, '13')],
     'белая': [CityEntry('RUKU', 51.05, 35.7167, '06')],
@@ -781,6 +784,7 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'вергулевка': [CityEntry('UAVR', 48.4, 38.5333, '12')],
     'верещагино': [CityEntry('RUPM', 58.0833, 54.6667, '24')],
     'верея': [CityEntry('RUMO', 55.35, 36.1833, '06'), CityEntry('RUMO', 55.7667, 39.1, '10')],
+    'вертневка': [CityEntry('UACG', 51.1667, 31.85, '09')],
     'верхнебаканский': [CityEntry('RUKD', 44.8667, 37.65, '13')],
     'верхнеберезовский': [CityEntry('KZVK', 50.2833, 82.2167, '41')],
     'верхневилюйск': [CityEntry('RUYK', 63.45, 120.3, '51')],
@@ -878,6 +882,7 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'вознесенск': [CityEntry('UANI', 47.5667, 31.3333, '09')],
     'вознесенское': [CityEntry('RUNG', 54.9, 42.7667, '13')],
     'вознесенье': [CityEntry('RULE', 61.0167, 35.45, '06')],
+    'возрождение': [CityEntry('RUSA', 52.7, 48.2, '16')],
     'войковский': [CityEntry('UADN', 47.7667, 38.3333, '12')],
     'войнилов': [CityEntry('UAIF', 49.1333, 24.5, '09')],
     'волга': [CityEntry('RUYR', 57.95, 38.4, '11')],
@@ -888,6 +893,7 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'волжский': [CityEntry('RUKJ', 53.45, 50.1167, '85'), CityEntry('RUVO', 48.8333, 44.7333, '16')],
     'волковыск': [CityEntry('BYGR', 53.15, 24.4167, '09')],
     'волноваха': [CityEntry('UADN', 47.6, 37.5167, '09')],
+    'воловец': [CityEntry('UAZK', 48.7167, 23.1833, '09')],
     'волово': [CityEntry('RUTL', 53.5833, 38.0333, '10')],
     'вологда': [CityEntry('RUVD', 59.2, 39.9167, '11')],
     'володарка': [CityEntry('UAKI', 49.5167, 29.9167, '09')],
@@ -936,6 +942,7 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'врубовский': [CityEntry('UAVR', 48.4333, 39.1167, '12')],
     'всеволожск': [CityEntry('RULE', 60.0167, 30.6667, '06')],
     'вуадиль': [CityEntry('UZFE', 40.1833, 71.7167, '39')],
+    'вуктыл': [CityEntry('RUKO', 63.8667, 57.2833, '26')],
     'вулканешты': [CityEntry('MD', 45.6833, 28.4, '66')],
     'вурнары': [CityEntry('RUCU', 55.4833, 46.9667, '13')],
     'вх рышканы': [CityEntry('MD', 47.9667, 27.5333, '66')],
@@ -1041,6 +1048,7 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'гоголево': [CityEntry('UAPO', 49.4333, 33.8, '09')],
     'голая пристань': [CityEntry('UAHE', 46.5167, 32.5167, '09')],
     'голицино': [CityEntry('RUMO', 55.6167, 36.9833, '06')],
+    'голобы': [CityEntry('UAVO', 51.1, 24.9833, '09')],
     'голованевск': [CityEntry('UAKV', 48.3833, 30.4667, '09')],
     'головно': [CityEntry('UAVO', 51.35, 24.0667, '09')],
     'голынки': [CityEntry('RUSM', 54.8667, 31.3833, '06')],
@@ -1501,6 +1509,7 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'змиевка': [CityEntry('RUOR', 52.6667, 36.3833, '06')],
     'знаменка': [CityEntry('RUTB', 52.4, 41.4333, '13'), CityEntry('UAKV', 48.7167, 32.6667, '09')],
     'знаменка-вторая': [CityEntry('UAKV', 48.7167, 32.5833, '09')],
+    'знаменск': [CityEntry('RUKL', 54.6167, 21.2167, '01')],
     'знаменское': [CityEntry('RUOM', 57.1333, 73.9167, '38'), CityEntry('RUOR', 53.2833, 35.6833, '06')],
     'знобь-новгородское': [CityEntry('UASM', 52.2667, 33.6, '09')],
     'золотаревка': [CityEntry('RUPN', 53.0667, 45.3333, '13')],
@@ -1985,6 +1994,7 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'коканд': [CityEntry('UZFE', 40.55, 70.95, '39')],
     'кокаревка': [CityEntry('RUBR', 52.5833, 34.2667, '06')],
     'кокнесе': [CityEntry('LV', 56.65, 25.4833, '04')],
+    'кокошкино': [CityEntry('RUMO', 55.6333, 37.1833, '06')],
     'кокпекты': [CityEntry('KZSE', 48.75, 82.4, '38')],
     'коксовый': [CityEntry('RURO', 48.2, 40.65, '79')],
     'коктал': [CityEntry('KZDM', 44.15, 79.8, '38')],
@@ -2042,6 +2052,7 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'короп': [CityEntry('UACG', 51.5667, 32.9333, '09')],
     'коростень': [CityEntry('UAJT', 50.95, 28.65, '09')],
     'коростышев': [CityEntry('UAJT', 50.3167, 29.05, '09')],
+    'короча': [CityEntry('RUBE', 50.8, 37.1833, '06')],
     'корсаков': [CityEntry('RUSH', 46.6333, 142.7667, '56')],
     'корсунь-шевченковский': [CityEntry('UACK', 49.4333, 31.2667, '09')],
     'корткерос': [CityEntry('RUKO', 61.8167, 51.4667, '15')],
@@ -2094,6 +2105,7 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'красноград': [CityEntry('UAHA', 49.3667, 35.45, '09')],
     'краснодар': [CityEntry('RUKD', 45.0333, 39.0, '13')],
     'краснодон': [CityEntry('UAVR', 48.2833, 39.8, '12')],
+    'красное-на-волге': [CityEntry('RUKS', 57.5167, 41.2333, '13')],
     'краснозаводск': [CityEntry('RUMO', 56.45, 38.2167, '10')],
     'краснозерское': [CityEntry('RUNS', 53.9833, 79.2333, '71')],
     'краснознаменск': [CityEntry('RUKL', 54.95, 22.5, '01')],
@@ -2361,11 +2373,11 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'майшягала': [CityEntry('LT', 54.8667, 25.0667, '02')],
     'майя': [CityEntry('RUYK', 61.7333, 130.3, '53')],
     'маканчи': [CityEntry('KZSE', 46.8, 82.0, '38')],
-    'макаров': [CityEntry('UAKI', 50.4667, 29.8167, '09')],
+    'макаров': [CityEntry('RUSH', 48.6333, 142.8, '56'), CityEntry('UAKI', 50.4667, 29.8167, '09')],
     'макарьев': [CityEntry('RUKS', 57.8667, 43.8, '13')],
     'макат': [CityEntry('KZGU', 47.65, 53.3167, '83')],
     'макеевка': [CityEntry('UADN', 48.0333, 37.9667, '12')],
-    'макннск': [CityEntry('KZCE', 52.6167, 70.4333, '38')],
+    'макинск': [CityEntry('KZCE', 52.6167, 70.4333, '38')],
     'максатиха': [CityEntry('RUKN', 57.8, 35.8833, '06')],
     'макушино': [CityEntry('RUKG', 55.2167, 67.2167, '28')],
     'малаховка': [CityEntry('RUMO', 55.65, 38.0, '10')],
@@ -2768,7 +2780,7 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'оратов': [CityEntry('UAVI', 49.2, 29.5333, '09')],
     'оргеев': [CityEntry('MD', 47.3833, 28.8, '66')],
     'орда': [CityEntry('RUPM', 57.2, 56.9, '28')],
-    'орджоникидзе': [CityEntry('KZKU', 52.4667, 61.7667, '25'), CityEntry('RUSO', 43.05, 44.6667, '13'), CityEntry('UADP', 47.6667, 34.0667, '09')],
+    'орджоникидзе': [CityEntry('GE', 42.0167, 43.2, '81'), CityEntry('KZKU', 52.4667, 61.7667, '25'), CityEntry('RUSO', 43.05, 44.6667, '13'), CityEntry('UADP', 47.6667, 34.0667, '09')],
     'орджоникидзевская': [CityEntry('RUCC', 43.3, 45.05, '13')],
     'ордубад': [CityEntry('AZNA', 38.9333, 46.0333, '64')],
     'ордынское': [CityEntry('RUNS', 54.3667, 81.9333, '71')],
@@ -2811,6 +2823,7 @@ CITY_TABLE: Dict[str, List[CityEntry]] = {
     'павловка': [CityEntry('RUUL', 52.6833, 47.15, '17')],
     'павлово': [CityEntry('RUNG', 55.9667, 43.0667, '13')],
     'павловск': [CityEntry('RUAL', 53.3333, 82.9833, '74'), CityEntry('RULE', 59.6833, 30.45, '06'), CityEntry('RUVR', 50.45, 40.1333, '13')],
+    'павловская': [CityEntry('RUKD', 46.1333, 39.8, '13')],
     'павловский посад': [CityEntry('RUMO', 55.7833, 38.6667, '10')],
     'павлоград': [CityEntry('UADP', 48.5333, 35.8833, '09')],
     'павлоградка': [CityEntry('RUOM', 54.2, 73.55, '38')],

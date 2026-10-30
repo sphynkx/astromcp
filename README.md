@@ -194,14 +194,15 @@ research rather than a blanket zone/capital rule (see `BIBLIOGRAPHY.md`).
 own page images, not trusted OCR - see that module's docstring for why).
 
 `engine/ussr_city_table.py` carries the book's own city-coordinate list -
-4254 of its ~4269 settlements (city name -> region code, coordinates,
-table id), OCR'd and then fully hand-verified page by page against the
-book's own page images (15 entries that stayed genuinely ambiguous after
-that review - an "l" vs "1" misread, a couple of malformed codes - were
-excluded rather than shipped with a guess; see that file's docstring and
-`tools/generate_ussr_city_table.py`, which regenerates it from a
-corrected source list and is the only supported way to fix an entry -
-never hand-edit the generated file).
+all 4269 settlements (city name -> region code, coordinates, table id),
+OCR'd and then fully hand-verified in two passes against the book's own
+page images: a first pass flagged every "l" vs "1" misread and malformed
+region code it couldn't resolve with confidence (15 entries), and a
+second pass resolved each of those against the place's known real-world
+coordinates, so nothing in the shipped table is a guess. See that file's
+docstring and `tools/generate_ussr_city_table.py`, which regenerates it
+from a corrected source list and is the only supported way to fix an
+entry - never hand-edit the generated file.
 
 **This is wired in automatically, not just a manually-invoked lookup.**
 When `build_full_report()` gets neither `tz_str` nor `tz_offset_minutes`,
@@ -212,7 +213,7 @@ it now:
    Kostroma) and then the bulk `ussr_city_table.CITY_TABLE` for the
    resolved city name. A match uses that table's offset automatically and
    the response carries `meta.tz_note = "auto_ussr_historical_table"` and
-   `meta.tz_table_id` naming the table used. ~160 names in the book belong
+   `meta.tz_table_id` naming the table used. ~161 names in the book belong
    to more than one real place (e.g. "Актас"/"Акташ"/"Актогай" each appear
    more than once with different coordinates) - the resolver only picks
    one automatically when the caller's own lat/lng clearly singles it out
@@ -772,13 +773,14 @@ protocol's session/SSE handshake):
   which is well-maintained but may not capture every obscure historical
   administrative change. Use `tz_offset_minutes` to override when you've
   verified the correct historical offset independently.
-- `engine/ussr_city_table.py` covers 4254 of the source book's ~4269
-  settlements (see "Historical timezones in the former USSR" above); 15
-  entries were excluded after a full manual review left them genuinely
-  ambiguous (an "l"/"1" misread or a malformed code), and a city not in
-  the book at all (too small to be listed) still falls back to the
+- `engine/ussr_city_table.py` covers all 4269 settlements in the source
+  book (see "Historical timezones in the former USSR" above) after a
+  two-pass manual review resolved the 15 that were initially ambiguous
+  (an "l"/"1" misread or a malformed region code). A city not in the
+  book at all (too small to be listed) still falls back to the
   unverified-modern-zone path. Fix via `tools/generate_ussr_city_table.py`
-  and a corrected source list if any of this turns out to matter.
+  and a corrected source list if a future reading of the book turns up
+  anything else.
 - `rectif_scan` cost scales linearly with `candidates × events`; very
   wide ranges at fine step sizes with many events can take minutes -
   tune `proxy_read_timeout` accordingly, or narrow the range first with

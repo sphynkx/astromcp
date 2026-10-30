@@ -337,12 +337,14 @@ into `engine/ussr_city_table.py` the same careful way: an OCR draft
 systematic digit/letter confusions (the book's "n"/"e" degree-minute
 separators are routinely misread as stray digits, and Latin region codes
 get forced into Cyrillic lookalikes), then a full manual read-through
-against the book's own page images by the project owner. 4254 of the
-~4269 entries made it in; 15 stayed genuinely unresolved after that
-review (an "l"/"1" misread the font makes genuinely ambiguous, a couple
-of malformed codes, one still-corrupted token) and were excluded rather
-than shipped with a guess - see `tools/generate_ussr_city_table.py` and
-that file's own docstring for the itemized list.
+against the book's own page images by the project owner, in two passes:
+the first caught everything resolvable from the page images alone; 15
+entries stayed genuinely ambiguous after that (an "l"/"1" misread the
+font makes hard to call on sight, a couple of malformed codes, one
+still-corrupted token), and a second pass resolved each of those against
+the place's known real-world coordinates rather than guessing. All 4269
+entries from the book are now in `engine/ussr_city_table.py` - see
+`tools/generate_ussr_city_table.py` for the source list and generator.
 
 ## Consulted but not used
 

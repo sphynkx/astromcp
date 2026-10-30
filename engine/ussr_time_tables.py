@@ -30,14 +30,15 @@ these offsets are not named IANA zones.
 
 FINDING THE RIGHT TABLE NUMBER FOR A CITY: engine/ussr_city_table.py now
 carries the book's own city-coordinate list too (its pages with ~4269
-settlements, one region-code + table-number per city) - 4254 of them,
-OCR'd then fully hand-verified page by page against the book's own page
-images (not trusted from OCR alone - see that file's docstring for the
-15 entries that stayed genuinely unresolved and were excluded rather
-than guessed at). resolve_ussr_historical_offset() below is the normal
+settlements, one region-code + table-number per city) - all of them,
+OCR'd then fully hand-verified against the book's own page images in two
+passes (not trusted from OCR alone - see that file's docstring: a first
+pass caught everything resolvable on sight, and a second resolved the 15
+that stayed ambiguous after that against each place's known real-world
+coordinates). resolve_ussr_historical_offset() below is the normal
 entry point - call it with whatever the caller has (city name and/or
 lat/lng) and it does this lookup automatically, including picking the
-right candidate when a name is ambiguous (~160 names in the book belong
+right candidate when a name is ambiguous (~161 names in the book belong
 to more than one real place, e.g. "Актас"/"Акташ"/"Актогай" each appear
 more than once). Calling ussr_offset_minutes() with a table_id directly
 (as in the usage example above) is still useful when you already know
@@ -1269,7 +1270,7 @@ def resolve_ussr_historical_offset(
     first, then the bulk CITY_TABLE (engine/ussr_city_table.py, generated
     from the source book's own city list - see that file's docstring).
     A city name with more than one real-world candidate in the book (not
-    rare - ~160 names in this dataset) is only resolved automatically
+    rare - ~161 names in this dataset) is only resolved automatically
     when the caller's own lat/lng clearly singles one out (see
     _pick_city_candidate) - otherwise this falls through to the
     danger-zone flag below rather than guessing which one was meant.

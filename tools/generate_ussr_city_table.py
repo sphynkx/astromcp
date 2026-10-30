@@ -74,23 +74,16 @@ CODE_TYPO_FIXES = {
 # bad one isn't thrown away too. See chat message for why each one
 # couldn't be auto-fixed (l/1 ambiguity, malformed code, or leftover
 # corruption).
-EXCLUDED_ENTRIES = {
-    ("Акмолинск", "KZCE"),
-    ("Бахмач", "UVACG"),
-    ("Бекабад", "UZTA"),
-    ("Вертневка", "UACG"),
-    ("Воловец", "UAZK"),
-    ("Возрождение", "RUSA"),
-    ("Вуктыл", "RUKO"),
-    ("Голобы", "UVAVO"),
-    ("Знаменск", "RUKL"),
-    ("Кокошкино", "RUMO"),
-    ("Короча", "RUBE"),
-    ("Красное-на-Волге", "RUKS"),
-    ("Макаров", "RUSH"),
-    ("Орджоникидзе", "GE"),
-    ("Павловская", "КГЛВ"),
-}
+#
+# The 15 entries originally listed here (Акмолинск/KZCE, Бахмач/UVACG,
+# Бекабад/UZTA, Вертневка/UACG, Воловец/UAZK, Возрождение/RUSA,
+# Вуктыл/RUKO, Голобы/UVAVO, Знаменск/RUKL, Кокошкино/RUMO, Короча/RUBE,
+# Красное-на-Волге/RUKS, Макаров/RUSH, Орджоникидзе/GE, Павловская/КГЛВ)
+# were all resolved by the project owner reviewing the book a second
+# time (correcting the garbled region codes, and confirming each l/1
+# digit from the place's known real-world coordinates) and fixed
+# directly in citylist_source/*.txt, so none remain excluded for now.
+EXCLUDED_ENTRIES = set()
 
 
 def dms_to_decimal(token: str, kind: str) -> float:
